@@ -133,7 +133,10 @@ select rls_test.expect_fail($$delete from public.invoice_series$$, 'series canno
 
 select rls_test.expect_fail($$update public.shipments set amount = 1 where awb = 'AWB-A-1'$$, 'billed shipment cannot be edited',
   '{P0001}', '%on invoice%');
-delete from public.shipments where awb = 'AWB-A-1';  -- RLS or trigger: must not delete
+do $$ begin  -- RLS filters it (0 rows) or the guard trigger refuses; any other error fails the run
+  delete from public.shipments where awb = 'AWB-A-1';
+exception when raise_exception then null;
+end $$;
 reset role;
 select rls_test.expect_ok((select amount from public.shipments where awb = 'AWB-A-1') = 50, 'billed shipment amount unchanged');
 select rls_test.expect_ok((select count(*) from public.shipments where awb = 'AWB-A-1') = 1, 'billed shipment not deleted');
@@ -179,8 +182,6 @@ select rls_test.expect_ok((select count(*) from public.shipments where awb = 'AW
 set local role authenticated;
 select rls_test.expect_fail($$select public.create_invoice((select id from rls_test.a_client), current_date - 30, current_date)$$,
   'expired: invoicing blocked', '{P0001}', '%expired%');
-select rls_test.expect_fail($$update public.invoice_series set prefix = 'X' where kind = 'gst'$$, 'expired: series edit blocked (0 rows ok)', '{P0001}', 'never')
-  where false;  -- series update under RLS silently affects 0 rows; verified below
 update public.invoice_series set prefix = 'X' where kind = 'gst';
 reset role;
 select rls_test.expect_ok((select prefix = 'AGST' from public.invoice_series where owner_id = '00000000-0000-0000-0000-00000000000a' and kind = 'gst'),
