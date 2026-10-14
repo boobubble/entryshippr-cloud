@@ -22,7 +22,7 @@ function Dashboard() {
         supabase.from("clients").select("id", { count: "exact", head: true }).eq("active", true),
         supabase.from("shipments").select("amount").gte("ship_date", ms),
         supabase.from("shipments").select("amount").is("invoice_id", null),
-        supabase.from("invoices").select("total").gte("invoice_date", ms),
+        supabase.from("invoices").select("total").eq("status", "issued").gte("invoice_date", ms),
         supabase.from("shipments").select("id, awb, ship_date, destination, amount, clients(name)").order("created_at", { ascending: false }).limit(8),
       ]);
       const sum = (r: { data: { amount?: number; total?: number }[] | null }) => (r.data || []).reduce((a, x) => a + Number(x.amount ?? x.total ?? 0), 0);

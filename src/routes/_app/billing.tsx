@@ -86,8 +86,8 @@ function Billing() {
         <table className="w-full text-sm">
           <thead className="bg-muted text-left"><tr><th className="p-3">Date</th><th className="p-3">Plan</th><th className="p-3">Payment ID</th><th className="p-3 text-right">Amount</th></tr></thead>
           <tbody>
-            {payments.map((p: { id: string; created_at: string; plan: string; razorpay_payment_id: string; amount: number }) => (
-              <tr key={p.id} className="border-t"><td className="p-3">{new Date(p.created_at).toLocaleDateString("en-IN")}</td><td className="p-3">{p.plan}</td><td className="p-3 font-mono">{p.razorpay_payment_id}</td><td className="p-3 text-right">{inr(p.amount)}</td></tr>
+            {payments.map((p: { id: string; created_at: string; plan: string; razorpay_payment_id: string; amount_paise: number }) => (
+              <tr key={p.id} className="border-t"><td className="p-3">{new Date(p.created_at).toLocaleDateString("en-IN")}</td><td className="p-3">{p.plan}</td><td className="p-3 font-mono">{p.razorpay_payment_id}</td><td className="p-3 text-right">{inr(p.amount_paise / 100)}</td></tr>
             ))}
             {!payments.length && <tr><td colSpan={4} className="p-6 text-center text-muted-foreground">No payments yet.</td></tr>}
           </tbody>

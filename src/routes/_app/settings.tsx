@@ -14,7 +14,7 @@ export const Route = createFileRoute("/_app/settings")({
   component: Settings,
 });
 
-const FIELDS = [["business_name", "Business name"], ["phone", "Phone"], ["gstin", "GSTIN"], ["state", "State"], ["invoice_prefix", "Invoice prefix"], ["address", "Address"]] as const;
+const FIELDS = [["business_name", "Business name"], ["phone", "Phone"], ["gstin", "GSTIN"], ["state", "State"], ["address", "Address"]] as const;
 
 function Settings() {
   const { data } = useProfile();

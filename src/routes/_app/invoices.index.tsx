@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase, inr } from "@/lib/supabase";
-import { useClients, useProfile, errMsg } from "@/lib/hooks";
+import { useClients, errMsg } from "@/lib/hooks";
 import { PageHead, appHead } from "@/components/PageHead";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,11 +14,9 @@ export const Route = createFileRoute("/_app/invoices/")({
   component: Invoices,
 });
 
-const r2 = (n: number) => Math.round(n * 100) / 100;
 
 function Invoices() {
   const { data: clients = [] } = useClients();
-  const { data: me } = useProfile();
   const qc = useQueryClient();
   const nav = useNavigate();
   const d = new Date();
@@ -32,7 +30,7 @@ function Invoices() {
     queryFn: async () => {
       const { data, error } = await supabase.from("invoices").select("*, clients(name)").order("created_at", { ascending: false });
       if (error) throw error;
-      return data as { id: string; invoice_no: string; invoice_date: string; total: number; is_gst: boolean; clients: { name: string } | null }[];
+      return data as { id: string; invoice_no: string; invoice_date: string; total: number; kind: "gst" | "nongst"; status: "issued" | "cancelled"; clients: { name: string } | null }[];
     },
   });
 
@@ -40,32 +38,18 @@ function Invoices() {
     e.preventDefault();
     setBusy(true);
     try {
-      const client = clients.find((c) => c.id === f.client_id)!;
-      const { data: ships, error } = await supabase.from("shipments").select("id, amount").eq("client_id", f.client_id).is("invoice_id", null).gte("ship_date", f.from).lte("ship_date", f.to);
+      const { data: id, error } = await supabase.rpc("create_invoice", { p_client_id: f.client_id, p_from: f.from, p_to: f.to });
       if (error) throw error;
-      if (!ships.length) throw new Error("No unbilled shipments for this client in the period");
-      const subtotal = r2(ships.reduce((a, s) => a + Number(s.amount), 0));
-      const p = me?.profile;
-      const intra = !p?.state || !client.state || p.state.trim().toLowerCase() === client.state.trim().toLowerCase();
-      const gst = client.is_gst ? r2(subtotal * 0.18) : 0;
-      const cgst = client.is_gst && intra ? r2(gst / 2) : 0;
-      const igst = client.is_gst && !intra ? gst : 0;
-      const { count } = await supabase.from("invoices").select("id", { count: "exact", head: true });
-      const fy = d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1;
-      const invoice_no = `${p?.invoice_prefix || "INV"}/${fy}-${String(fy + 1).slice(2)}/${String((count || 0) + 1).padStart(4, "0")}`;
-      const { data: inv, error: e2 } = await supabase.from("invoices").insert({ client_id: client.id, invoice_no, period_from: f.from, period_to: f.to, is_gst: client.is_gst, subtotal, cgst, sgst: cgst, igst, total: r2(subtotal + cgst * 2 + igst) }).select("id").single();
-      if (e2) throw e2;
-      const { error: e3 } = await supabase.from("shipments").update({ invoice_id: inv.id }).in("id", ships.map((s) => s.id));
-      if (e3) throw e3;
       qc.invalidateQueries();
-      toast.success(`Invoice ${invoice_no} created`);
-      nav({ to: "/invoices/$id", params: { id: inv.id } });
+      toast.success("Invoice created");
+      nav({ to: "/invoices/$id", params: { id: id as string } });
     } catch (err) { toast.error(errMsg(err)); } finally { setBusy(false); }
   }
 
-  async function del(id: string) {
-    if (!confirm("Delete this invoice? Its shipments become unbilled again.")) return;
-    const { error } = await supabase.from("invoices").delete().eq("id", id);
+  async function cancel(id: string) {
+    const reason = prompt("Cancel this invoice? Its number is kept and its shipments become unbilled again. Reason:");
+    if (reason === null) return;
+    const { error } = await supabase.rpc("cancel_invoice", { p_invoice_id: id, p_reason: reason });
     if (error) { toast.error(errMsg(error)); return; }
     qc.invalidateQueries();
   }
@@ -87,8 +71,8 @@ function Invoices() {
           <thead className="bg-muted text-left"><tr><th className="p-3">Invoice</th><th className="p-3">Date</th><th className="p-3">Client</th><th className="p-3">Type</th><th className="p-3 text-right">Total</th><th /></tr></thead>
           <tbody>
             {invoices.map((i) => (
-              <tr key={i.id} className="border-t"><td className="p-3"><Link to="/invoices/$id" params={{ id: i.id }} className="text-primary underline">{i.invoice_no}</Link></td><td className="p-3">{i.invoice_date}</td><td className="p-3">{i.clients?.name}</td><td className="p-3">{i.is_gst ? "GST" : "Non-GST"}</td><td className="p-3 text-right">{inr(i.total)}</td>
-                <td className="p-3 text-right"><Button size="sm" variant="ghost" onClick={() => del(i.id)}>Delete</Button></td></tr>
+              <tr key={i.id} className="border-t"><td className="p-3"><Link to="/invoices/$id" params={{ id: i.id }} className="text-primary underline">{i.invoice_no}</Link></td><td className="p-3">{i.invoice_date}</td><td className="p-3">{i.clients?.name}</td><td className="p-3">{i.kind === "gst" ? "GST" : "Non-GST"}{i.status === "cancelled" && <span className="ml-2 text-destructive">Cancelled</span>}</td><td className="p-3 text-right">{inr(i.total)}</td>
+                <td className="p-3 text-right">{i.status === "issued" && <Button size="sm" variant="ghost" onClick={() => cancel(i.id)}>Cancel</Button>}</td></tr>
             ))}
             {!invoices.length && <tr><td colSpan={6} className="p-6 text-center text-muted-foreground">No invoices yet.</td></tr>}
           </tbody>
