@@ -62,7 +62,7 @@ async function activate(uid: string, plan: string, includesFee: boolean) {
   const base = p?.["plan_expires_at"] && new Date(p["plan_expires_at"]) > new Date() ? new Date(p.plan_expires_at) : new Date();
   base.setFullYear(base.getFullYear() + 1);
   const patch: Record<string, unknown> = { plan, plan_expires_at: base.toISOString() };
-  if (includesFee) patch.joining_fee_paid = true;
+  if (includesFee) patch["joining_fee_paid"] = true;
   await rest(`profiles?id=eq.${uid}`, { method: "PATCH", body: JSON.stringify(patch) });
 }
 
