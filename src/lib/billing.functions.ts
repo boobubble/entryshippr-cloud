@@ -9,7 +9,7 @@ async function getUser(token: string): Promise<{ id: string; email: string }> {
   return r.json();
 }
 
-async function rest(path: string, init: RequestInit = {}) {
+export async function rest(path: string, init: RequestInit = {}) {
   const key = process.env["EXT_SUPABASE_SECRET_KEY"]!;
   const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
     ...init,
@@ -20,79 +20,103 @@ async function rest(path: string, init: RequestInit = {}) {
   return text ? JSON.parse(text) : null;
 }
 
-async function isAdmin(uid: string) {
-  const rows = await rest(`user_roles?user_id=eq.${uid}&role=eq.admin&select=id`);
-  return rows.length > 0;
+function rzpAuth() {
+  return "Basic " + btoa(`${process.env["RAZORPAY_KEY_ID"]}:${process.env["RAZORPAY_KEY_SECRET"]}`);
 }
 
-export const createOrder = createServerFn({ method: "POST" })
-  .inputValidator((d: { token: string; plan: "standard" | "unlimited" }) => {
-    if (!["standard", "unlimited"].includes(d.plan)) throw new Error("Invalid plan");
-    return d;
-  })
-  .handler(async ({ data }) => {
-    const user = await getUser(data.token);
-    const [profile] = await rest(`profiles?id=eq.${user.id}&select=joining_fee_paid`);
-    const withFee = !profile?.["joining_fee_paid"];
-    const amount = PLANS[data.plan].price + (withFee ? JOINING_FEE : 0);
-    const keyId = process.env["RAZORPAY_KEY_ID"]!;
-    const auth = btoa(`${keyId}:${process.env["RAZORPAY_KEY_SECRET"]}`);
-    const r = await fetch("https://api.razorpay.com/v1/orders", {
-      method: "POST",
-      headers: { Authorization: `Basic ${auth}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ amount: amount * 100, currency: "INR", receipt: `es_${Date.now()}`, notes: { user_id: user.id, plan: data.plan } }),
-    });
-    const order = await r.json();
-    if (!r.ok) throw new Error(order?.error?.description || "Could not start payment");
-    await rest("payments", {
-      method: "POST",
-      body: JSON.stringify({ owner_id: user.id, plan: data.plan, amount, includes_joining_fee: withFee, razorpay_order_id: order.id }),
-    });
-    return { orderId: order.id as string, amount, keyId, email: user.email, withFee };
-  });
-
-async function hmacHex(secret: string, msg: string) {
+export async function hmacHex(secret: string, msg: string) {
   const k = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   const sig = await crypto.subtle.sign("HMAC", k, new TextEncoder().encode(msg));
   return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-async function activate(uid: string, plan: string, includesFee: boolean) {
-  const [p] = await rest(`profiles?id=eq.${uid}&select=plan_expires_at`);
-  const base = p?.["plan_expires_at"] && new Date(p["plan_expires_at"]) > new Date() ? new Date(p.plan_expires_at) : new Date();
-  base.setFullYear(base.getFullYear() + 1);
-  const patch: Record<string, unknown> = { plan, plan_expires_at: base.toISOString() };
-  if (includesFee) patch["joining_fee_paid"] = true;
-  await rest(`profiles?id=eq.${uid}`, { method: "PATCH", body: JSON.stringify(patch) });
+export function safeEqual(a: string, b: string) {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
 }
 
+/** Idempotent; returns true only the first time an order is activated. */
+export async function activatePayment(orderId: string, paymentId: string, amountPaise: number) {
+  return rest("rpc/activate_payment", {
+    method: "POST",
+    body: JSON.stringify({ p_order_id: orderId, p_payment_id: paymentId, p_amount_paise: amountPaise }),
+  }) as Promise<boolean>;
+}
+
+export const createOrder = createServerFn({ method: "POST" })
+  .inputValidator((d: { token: string; plan: "standard" | "unlimited" }) => {
+    if (typeof d?.token !== "string" || !["standard", "unlimited"].includes(d.plan)) throw new Error("Invalid request");
+    return d;
+  })
+  .handler(async ({ data }) => {
+    const user = await getUser(data.token);
+    const [profile] = await rest(`profiles?id=eq.${user.id}&select=joining_fee_paid`);
+    if (!profile) throw new Error("Profile not found");
+    const withFee = !profile["joining_fee_paid"];
+    const amountPaise = (PLANS[data.plan].price + (withFee ? JOINING_FEE : 0)) * 100;
+    const r = await fetch("https://api.razorpay.com/v1/orders", {
+      method: "POST",
+      headers: { Authorization: rzpAuth(), "Content-Type": "application/json" },
+      body: JSON.stringify({ amount: amountPaise, currency: "INR", receipt: `es_${Date.now()}`, notes: { user_id: user.id, plan: data.plan } }),
+    });
+    const order = await r.json();
+    if (!r.ok) throw new Error(order?.error?.description || "Could not start payment");
+    await rest("payments", {
+      method: "POST",
+      body: JSON.stringify({ owner_id: user.id, plan: data.plan, amount_paise: amountPaise, includes_joining_fee: withFee, razorpay_order_id: order.id }),
+    });
+    return { orderId: order.id as string, amount: amountPaise / 100, keyId: process.env["RAZORPAY_KEY_ID"]!, email: user.email, withFee };
+  });
+
 export const verifyPayment = createServerFn({ method: "POST" })
-  .inputValidator((d: { token: string; orderId: string; paymentId: string; signature: string }) => d)
+  .inputValidator((d: { token: string; orderId: string; paymentId: string; signature: string }) => {
+    for (const k of ["token", "orderId", "paymentId", "signature"] as const)
+      if (typeof d?.[k] !== "string" || d[k].length > 4000) throw new Error("Invalid request");
+    return d;
+  })
   .handler(async ({ data }) => {
     const user = await getUser(data.token);
     const expected = await hmacHex(process.env["RAZORPAY_KEY_SECRET"]!, `${data.orderId}|${data.paymentId}`);
-    if (expected !== data.signature) throw new Error("Payment signature mismatch");
-    const [pay] = await rest(`payments?razorpay_order_id=eq.${encodeURIComponent(data.orderId)}&owner_id=eq.${user.id}&select=*`);
+    if (!safeEqual(expected, data.signature)) throw new Error("Payment signature mismatch");
+
+    const [pay] = await rest(`payments?razorpay_order_id=eq.${encodeURIComponent(data.orderId)}&owner_id=eq.${user.id}&select=amount_paise,status`);
     if (!pay) throw new Error("Order not found");
     if (pay.status === "paid") return { ok: true };
-    await rest(`payments?id=eq.${pay.id}`, { method: "PATCH", body: JSON.stringify({ status: "paid", razorpay_payment_id: data.paymentId }) });
-    await activate(user.id, pay.plan, pay.includes_joining_fee);
+
+    // Confirm with Razorpay itself: right order, right amount, money captured.
+    const pr = await fetch(`https://api.razorpay.com/v1/payments/${encodeURIComponent(data.paymentId)}`, { headers: { Authorization: rzpAuth() } });
+    const payment = await pr.json();
+    if (!pr.ok) throw new Error("Could not confirm payment with Razorpay");
+    if (payment.order_id !== data.orderId || Number(payment.amount) !== Number(pay.amount_paise) || payment.currency !== "INR")
+      throw new Error("Payment does not match order");
+    if (payment.status === "authorized") {
+      const cr = await fetch(`https://api.razorpay.com/v1/payments/${encodeURIComponent(data.paymentId)}/capture`, {
+        method: "POST", headers: { Authorization: rzpAuth(), "Content-Type": "application/json" },
+        body: JSON.stringify({ amount: payment.amount, currency: "INR" }),
+      });
+      if (!cr.ok) throw new Error("Payment capture failed");
+    } else if (payment.status !== "captured") {
+      throw new Error(`Payment not completed (${payment.status})`);
+    }
+    await activatePayment(data.orderId, data.paymentId, Number(payment.amount));
     return { ok: true };
   });
 
 export const adminUpdateUser = createServerFn({ method: "POST" })
-  .inputValidator((d: { token: string; userId: string; action: "extend_trial" | "grant_plan" | "revoke"; plan?: "standard" | "unlimited" | undefined }) => d)
+  .inputValidator((d: { token: string; userId: string; action: "extend_trial" | "grant_plan" | "revoke"; plan?: "standard" | "unlimited" | undefined }) => {
+    if (!/^[0-9a-f-]{36}$/i.test(d?.userId) || !["extend_trial", "grant_plan", "revoke"].includes(d.action)) throw new Error("Invalid request");
+    if (d.plan && !["standard", "unlimited"].includes(d.plan)) throw new Error("Invalid plan");
+    return d;
+  })
   .handler(async ({ data }) => {
     const me = await getUser(data.token);
-    if (!(await isAdmin(me.id))) throw new Error("Admins only");
-    const uid = encodeURIComponent(data.userId);
-    if (data.action === "extend_trial") {
-      const d = new Date(); d.setDate(d.getDate() + 5);
-      await rest(`profiles?id=eq.${uid}`, { method: "PATCH", body: JSON.stringify({ trial_ends_at: d.toISOString() }) });
-    } else if (data.action === "grant_plan") {
-      await activate(data.userId, data.plan || "standard", false);
-    } else {
-      await rest(`profiles?id=eq.${uid}`, { method: "PATCH", body: JSON.stringify({ plan: null, plan_expires_at: null, trial_ends_at: new Date().toISOString() }) });
-    }
+    const roles = await rest(`user_roles?user_id=eq.${me.id}&role=eq.admin&select=id`);
+    if (!roles.length) throw new Error("Admins only");
+    await rest("rpc/admin_set_access", {
+      method: "POST",
+      body: JSON.stringify({ p_user_id: data.userId, p_action: data.action, p_plan: data.plan ?? null }),
+    });
     return { ok: true };
   });

@@ -3,7 +3,7 @@ import { supabase } from "./supabase";
 
 export type Profile = {
   id: string; email: string | null; business_name: string | null; phone: string | null; gstin: string | null;
-  address: string | null; state: string | null; invoice_prefix: string | null; trial_ends_at: string;
+  address: string | null; state: string | null; trial_ends_at: string;
   plan: "standard" | "unlimited" | null; plan_expires_at: string | null; joining_fee_paid: boolean;
 };
 export type Client = { id: string; name: string; phone: string | null; email: string | null; gstin: string | null; address: string | null; state: string | null; is_gst: boolean; active: boolean };

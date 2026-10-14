@@ -8,13 +8,14 @@ import { PageHead, appHead } from "@/components/PageHead";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { InvoiceSeries } from "@/components/InvoiceSeries";
 
 export const Route = createFileRoute("/_app/settings")({
   head: appHead("Business settings", "Your business details printed on invoices."),
   component: Settings,
 });
 
-const FIELDS = [["business_name", "Business name"], ["phone", "Phone"], ["gstin", "GSTIN"], ["state", "State"], ["invoice_prefix", "Invoice prefix"], ["address", "Address"]] as const;
+const FIELDS = [["business_name", "Business name"], ["phone", "Phone"], ["gstin", "GSTIN"], ["state", "State"], ["address", "Address"]] as const;
 
 function Settings() {
   const { data } = useProfile();
@@ -40,6 +41,7 @@ function Settings() {
         <p className="text-xs text-muted-foreground sm:col-span-2">State decides CGST+SGST (same state as client) or IGST (different state) on GST invoices.</p>
         <Button className="sm:col-span-2" disabled={!data?.profile}>Save</Button>
       </form>
+      <InvoiceSeries />
     </div>
   );
 }

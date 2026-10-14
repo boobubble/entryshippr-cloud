@@ -23,7 +23,7 @@ function Admin() {
         supabase.from("profiles").select("*").order("created_at", { ascending: false }),
         supabase.from("payments").select("*").eq("status", "paid").order("created_at", { ascending: false }),
       ]);
-      return { profiles: (p.data || []) as (Profile & { created_at: string })[], payments: (pay.data || []) as { id: string; owner_id: string; amount: number; plan: string; created_at: string; razorpay_payment_id: string }[] };
+      return { profiles: (p.data || []) as (Profile & { created_at: string })[], payments: (pay.data || []) as { id: string; owner_id: string; amount_paise: number; plan: string; created_at: string; razorpay_payment_id: string }[] };
     },
   });
   if (me && !me.isAdmin) return <p>Admins only.</p>;
@@ -35,7 +35,7 @@ function Admin() {
       qc.invalidateQueries({ queryKey: ["admin"] });
     } catch (e) { toast.error(errMsg(e)); }
   }
-  const revenue = (data?.payments || []).reduce((a, p) => a + Number(p.amount), 0);
+  const revenue = (data?.payments || []).reduce((a, p) => a + Number(p.amount_paise) / 100, 0);
   const paid = (data?.profiles || []).filter((p) => accessState(p).paid).length;
   const email = (id: string) => data?.profiles.find((p) => p.id === id)?.email;
 
@@ -66,7 +66,7 @@ function Admin() {
         <table className="w-full text-sm">
           <thead className="bg-muted text-left"><tr><th className="p-3">Date</th><th className="p-3">User</th><th className="p-3">Plan</th><th className="p-3">Payment ID</th><th className="p-3 text-right">Amount</th></tr></thead>
           <tbody>{data?.payments.map((p) => (
-            <tr key={p.id} className="border-t"><td className="p-3">{new Date(p.created_at).toLocaleDateString("en-IN")}</td><td className="p-3">{email(p.owner_id)}</td><td className="p-3">{p.plan}</td><td className="p-3 font-mono">{p.razorpay_payment_id}</td><td className="p-3 text-right">{inr(p.amount)}</td></tr>
+            <tr key={p.id} className="border-t"><td className="p-3">{new Date(p.created_at).toLocaleDateString("en-IN")}</td><td className="p-3">{email(p.owner_id)}</td><td className="p-3">{p.plan}</td><td className="p-3 font-mono">{p.razorpay_payment_id}</td><td className="p-3 text-right">{inr(p.amount_paise / 100)}</td></tr>
           ))}</tbody>
         </table>
       </div>
