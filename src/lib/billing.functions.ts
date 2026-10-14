@@ -59,7 +59,7 @@ async function hmacHex(secret: string, msg: string) {
 
 async function activate(uid: string, plan: string, includesFee: boolean) {
   const [p] = await rest(`profiles?id=eq.${uid}&select=plan_expires_at`);
-  const base = p?.plan_expires_at && new Date(p.plan_expires_at) > new Date() ? new Date(p.plan_expires_at) : new Date();
+  const base = p?.["plan_expires_at"] && new Date(p["plan_expires_at"]) > new Date() ? new Date(p.plan_expires_at) : new Date();
   base.setFullYear(base.getFullYear() + 1);
   const patch: Record<string, unknown> = { plan, plan_expires_at: base.toISOString() };
   if (includesFee) patch.joining_fee_paid = true;
@@ -81,7 +81,7 @@ export const verifyPayment = createServerFn({ method: "POST" })
   });
 
 export const adminUpdateUser = createServerFn({ method: "POST" })
-  .inputValidator((d: { token: string; userId: string; action: "extend_trial" | "grant_plan" | "revoke"; plan?: "standard" | "unlimited" }) => d)
+  .inputValidator((d: { token: string; userId: string; action: "extend_trial" | "grant_plan" | "revoke"; plan?: "standard" | "unlimited" | undefined }) => d)
   .handler(async ({ data }) => {
     const me = await getUser(data.token);
     if (!(await isAdmin(me.id))) throw new Error("Admins only");
