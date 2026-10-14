@@ -17,7 +17,6 @@ create function pg_temp.expect_ok(cond boolean, label text) returns void languag
 begin
   if cond then raise notice 'PASS %', label; else raise exception 'FAIL: %', label; end if;
 end $$;
-grant execute on all functions in schema pg_temp to authenticated;
 
 -- ---------- Tenant A sets up data
 set local role authenticated;
