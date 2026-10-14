@@ -16,6 +16,25 @@ create type public.invoice_status as enum ('issued', 'cancelled');
 create type public.payment_status as enum ('created', 'paid', 'failed');
 
 -- ---------------------------------------------------------------------
+-- Indian states / UTs with GST state codes. NULL = not a valid state.
+-- ---------------------------------------------------------------------
+create function public.gst_state_code(p_state text)
+returns text language sql immutable parallel safe set search_path = '' as $$
+  select v.code from (values
+    ('01','jammu and kashmir'),('02','himachal pradesh'),('03','punjab'),('04','chandigarh'),
+    ('05','uttarakhand'),('06','haryana'),('07','delhi'),('08','rajasthan'),('09','uttar pradesh'),
+    ('10','bihar'),('11','sikkim'),('12','arunachal pradesh'),('13','nagaland'),('14','manipur'),
+    ('15','mizoram'),('16','tripura'),('17','meghalaya'),('18','assam'),('19','west bengal'),
+    ('20','jharkhand'),('21','odisha'),('22','chhattisgarh'),('23','madhya pradesh'),('24','gujarat'),
+    ('26','dadra and nagar haveli and daman and diu'),('27','maharashtra'),('29','karnataka'),('30','goa'),
+    ('31','lakshadweep'),('32','kerala'),('33','tamil nadu'),('34','puducherry'),
+    ('35','andaman and nicobar islands'),('36','telangana'),('37','andhra pradesh'),('38','ladakh'),
+    ('97','other territory')
+  ) as v(code, name) where v.name = lower(btrim(p_state))
+$$;
+grant execute on function public.gst_state_code(text) to anon, authenticated, service_role;
+
+-- ---------------------------------------------------------------------
 -- Profiles (one per auth user). Plan fields are server-only.
 -- ---------------------------------------------------------------------
 create table public.profiles (
@@ -25,12 +44,13 @@ create table public.profiles (
   phone text check (char_length(phone) <= 30),
   gstin text check (gstin is null or gstin = '' or gstin ~ '^[0-9]{2}[A-Z0-9]{13}$'),
   address text check (char_length(address) <= 1000),
-  state text check (char_length(state) <= 60),
+  state text check (state is null or public.gst_state_code(state) is not null),
   trial_ends_at timestamptz not null default now() + interval '5 days',
   plan public.plan_kind,
   plan_expires_at timestamptz,
   joining_fee_paid boolean not null default false,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  check (coalesce(gstin, '') = '' or state is null or left(gstin, 2) = public.gst_state_code(state))
 );
 grant select on public.profiles to authenticated;
 grant update (business_name, phone, gstin, address, state) on public.profiles to authenticated;
@@ -112,10 +132,11 @@ create table public.clients (
   email text check (char_length(email) <= 200),
   gstin text check (gstin is null or gstin = '' or gstin ~ '^[0-9]{2}[A-Z0-9]{13}$'),
   address text check (char_length(address) <= 1000),
-  state text check (char_length(state) <= 60),
+  state text check (state is null or public.gst_state_code(state) is not null),
   is_gst boolean not null default true,
   active boolean not null default true,
   created_at timestamptz not null default now(),
+  check (coalesce(gstin, '') = '' or state is null or left(gstin, 2) = public.gst_state_code(state)),
   unique (owner_id, id),             -- target for tenant-scoped composite FKs
   unique (owner_id, name)
 );
@@ -211,6 +232,7 @@ create policy "series: read own" on public.invoice_series for select to authenti
   using (owner_id = auth.uid());
 create policy "series: insert own (active plan)" on public.invoice_series for insert to authenticated
   with check (owner_id = auth.uid() and public.has_access());
+-- No delete grant: deleting a series would let numbering restart.
 create policy "series: update own (active plan)" on public.invoice_series for update to authenticated
   using (owner_id = auth.uid() and public.has_access())
   with check (owner_id = auth.uid() and public.has_access());
@@ -254,11 +276,20 @@ alter table public.invoices enable row level security;
 create policy "invoices: read own" on public.invoices for select to authenticated
   using (owner_id = auth.uid());
 
--- Starting number cannot go below numbers already used
+-- Numbers never move backwards: on insert, above every used number; on update,
+-- never below the current next_number (so reserved-but-unused numbers are never reissued).
 create function public.guard_invoice_series()
 returns trigger language plpgsql security definer set search_path = '' as $$
 declare v_max int;
 begin
+  if tg_op = 'UPDATE' then
+    if new.owner_id <> old.owner_id or new.fy <> old.fy or new.kind <> old.kind then
+      raise exception 'Series identity cannot change';
+    end if;
+    if new.next_number < old.next_number then
+      raise exception 'Next number cannot go backwards (currently %)', old.next_number;
+    end if;
+  end if;
   select coalesce(max(seq), 0) into v_max from public.invoices
     where owner_id = new.owner_id and fy = new.fy and kind = new.kind;
   if new.next_number <= v_max then
@@ -367,21 +398,27 @@ begin
   v_kind := case when v_client.is_gst then 'gst'::public.invoice_kind else 'nongst'::public.invoice_kind end;
   v_fy := public.fy_label(p_invoice_date);
 
+  if v_kind = 'gst' then
+    if public.gst_state_code(v_state) is null then
+      raise exception 'Set a valid business state in Settings before issuing GST invoices';
+    end if;
+    if public.gst_state_code(v_client.state) is null then
+      raise exception 'Set a valid state for client % before issuing a GST invoice', v_client.name;
+    end if;
+    if public.gst_state_code(v_state) = public.gst_state_code(v_client.state) then
+      v_cgst := round(v_sub * 0.09, 2);
+    else
+      v_igst := round(v_sub * 0.18, 2);
+    end if;
+  end if;
+
+  -- number reserved only after every validation has passed
   insert into public.invoice_series (owner_id, fy, kind, prefix, next_number)
   values (v_uid, v_fy, v_kind, case when v_kind = 'gst' then 'GST' else 'BOS' end, 1)
   on conflict (owner_id, fy, kind) do nothing;
   update public.invoice_series set next_number = next_number + 1
    where owner_id = v_uid and fy = v_fy and kind = v_kind
    returning next_number - 1, prefix into v_seq, v_prefix;   -- row lock serialises numbering
-
-  if v_kind = 'gst' then
-    if coalesce(nullif(lower(btrim(v_state)), ''), '#') = coalesce(nullif(lower(btrim(v_client.state)), ''), '#')
-       or nullif(btrim(v_state), '') is null or nullif(btrim(v_client.state), '') is null then
-      v_cgst := round(v_sub * 0.09, 2);
-    else
-      v_igst := round(v_sub * 0.18, 2);
-    end if;
-  end if;
 
   insert into public.invoices (owner_id, client_id, kind, fy, seq, invoice_no, invoice_date,
                                period_from, period_to, subtotal, cgst, sgst, igst, total)
