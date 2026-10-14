@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { StateSelect } from "@/components/StateSelect";
 
 export const Route = createFileRoute("/_app/clients")({
   head: appHead("Clients", "Manage your GST and non-GST courier clients."),
@@ -27,7 +28,8 @@ function Clients() {
   async function save(e: React.FormEvent) {
     e.preventDefault();
     if (!edit) return;
-    const { id, ...row } = edit;
+    const { id, ...form } = edit;
+    const row = { ...form, state: form.state || null, gstin: form.gstin.trim().toUpperCase() || null };
     const res = id ? await supabase.from("clients").update(row).eq("id", id) : await supabase.from("clients").insert(row);
     if (res.error) { toast.error(errMsg(res.error)); return; }
     toast.success("Client saved");
@@ -81,7 +83,9 @@ function Clients() {
               {(["name", "phone", "email", "gstin", "state", "address"] as const).map((f) => (
                 <div key={f} className={f === "address" ? "sm:col-span-2" : ""}>
                   <Label className="capitalize">{f === "gstin" ? "GSTIN" : f}</Label>
-                  <Input required={f === "name"} value={edit[f]} onChange={(e) => setEdit({ ...edit, [f]: e.target.value })} />
+                  {f === "state"
+                    ? <StateSelect value={edit.state} onChange={(v) => setEdit({ ...edit, state: v })} />
+                    : <Input required={f === "name"} value={edit[f]} onChange={(e) => setEdit({ ...edit, [f]: e.target.value })} />}
                 </div>
               ))}
               <label className="flex items-center gap-2 text-sm"><Switch checked={edit.is_gst} onCheckedChange={(v) => setEdit({ ...edit, is_gst: v })} />Charge GST</label>
