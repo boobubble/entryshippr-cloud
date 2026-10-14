@@ -15,7 +15,12 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as AppClientsRouteImport } from './routes/_app/clients'
 import { Route as AppDashboardRouteImport } from './routes/_app/dashboard'
+import { Route as AppImportRouteImport } from './routes/_app/import'
+import { Route as AppInvoicesRouteImport } from './routes/_app/invoices'
 import { Route as AppRateCardsRouteImport } from './routes/_app/rate-cards'
+import { Route as AppShipmentsRouteImport } from './routes/_app/shipments'
+import { Route as AppInvoicesIndexRouteImport } from './routes/_app/invoices.index'
+import { Route as AppInvoicesIdRouteImport } from './routes/_app/invoices.$id'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -46,10 +51,35 @@ const AppDashboardRoute = AppDashboardRouteImport.update({
   path: '/dashboard',
   getParentRoute: () => AppRouteRoute,
 } as any)
+const AppImportRoute = AppImportRouteImport.update({
+  id: '/import',
+  path: '/import',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppInvoicesRoute = AppInvoicesRouteImport.update({
+  id: '/invoices',
+  path: '/invoices',
+  getParentRoute: () => AppRouteRoute,
+} as any)
 const AppRateCardsRoute = AppRateCardsRouteImport.update({
   id: '/rate-cards',
   path: '/rate-cards',
   getParentRoute: () => AppRouteRoute,
+} as any)
+const AppShipmentsRoute = AppShipmentsRouteImport.update({
+  id: '/shipments',
+  path: '/shipments',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppInvoicesIndexRoute = AppInvoicesIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppInvoicesRoute,
+} as any)
+const AppInvoicesIdRoute = AppInvoicesIdRouteImport.update({
+  id: '/$id',
+  path: '/$id',
+  getParentRoute: () => AppInvoicesRoute,
 } as any)
 
 export interface FileRoutesByFullPath {
@@ -58,7 +88,12 @@ export interface FileRoutesByFullPath {
   '/reset-password': typeof ResetPasswordRoute
   '/clients': typeof AppClientsRoute
   '/dashboard': typeof AppDashboardRoute
+  '/import': typeof AppImportRoute
+  '/invoices': typeof AppInvoicesRouteWithChildren
   '/rate-cards': typeof AppRateCardsRoute
+  '/shipments': typeof AppShipmentsRoute
+  '/invoices/$id': typeof AppInvoicesIdRoute
+  '/invoices/': typeof AppInvoicesIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -66,7 +101,11 @@ export interface FileRoutesByTo {
   '/reset-password': typeof ResetPasswordRoute
   '/clients': typeof AppClientsRoute
   '/dashboard': typeof AppDashboardRoute
+  '/import': typeof AppImportRoute
   '/rate-cards': typeof AppRateCardsRoute
+  '/shipments': typeof AppShipmentsRoute
+  '/invoices/$id': typeof AppInvoicesIdRoute
+  '/invoices': typeof AppInvoicesIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -76,7 +115,12 @@ export interface FileRoutesById {
   '/reset-password': typeof ResetPasswordRoute
   '/_app/clients': typeof AppClientsRoute
   '/_app/dashboard': typeof AppDashboardRoute
+  '/_app/import': typeof AppImportRoute
+  '/_app/invoices': typeof AppInvoicesRouteWithChildren
   '/_app/rate-cards': typeof AppRateCardsRoute
+  '/_app/shipments': typeof AppShipmentsRoute
+  '/_app/invoices/$id': typeof AppInvoicesIdRoute
+  '/_app/invoices/': typeof AppInvoicesIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -86,7 +130,12 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/clients'
     | '/dashboard'
+    | '/import'
+    | '/invoices'
     | '/rate-cards'
+    | '/shipments'
+    | '/invoices/$id'
+    | '/invoices/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -94,7 +143,11 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/clients'
     | '/dashboard'
+    | '/import'
     | '/rate-cards'
+    | '/shipments'
+    | '/invoices/$id'
+    | '/invoices'
   id:
     | '__root__'
     | '/'
@@ -103,7 +156,12 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/_app/clients'
     | '/_app/dashboard'
+    | '/_app/import'
+    | '/_app/invoices'
     | '/_app/rate-cards'
+    | '/_app/shipments'
+    | '/_app/invoices/$id'
+    | '/_app/invoices/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -157,6 +215,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppDashboardRouteImport
       parentRoute: typeof AppRouteRoute
     }
+    '/_app/import': {
+      id: '/_app/import'
+      path: '/import'
+      fullPath: '/import'
+      preLoaderRoute: typeof AppImportRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/_app/invoices': {
+      id: '/_app/invoices'
+      path: '/invoices'
+      fullPath: '/invoices'
+      preLoaderRoute: typeof AppInvoicesRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
     '/_app/rate-cards': {
       id: '/_app/rate-cards'
       path: '/rate-cards'
@@ -164,19 +236,60 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppRateCardsRouteImport
       parentRoute: typeof AppRouteRoute
     }
+    '/_app/shipments': {
+      id: '/_app/shipments'
+      path: '/shipments'
+      fullPath: '/shipments'
+      preLoaderRoute: typeof AppShipmentsRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/_app/invoices/': {
+      id: '/_app/invoices/'
+      path: '/'
+      fullPath: '/invoices/'
+      preLoaderRoute: typeof AppInvoicesIndexRouteImport
+      parentRoute: typeof AppInvoicesRoute
+    }
+    '/_app/invoices/$id': {
+      id: '/_app/invoices/$id'
+      path: '/$id'
+      fullPath: '/invoices/$id'
+      preLoaderRoute: typeof AppInvoicesIdRouteImport
+      parentRoute: typeof AppInvoicesRoute
+    }
   }
 }
+
+interface AppInvoicesRouteChildren {
+  AppInvoicesIdRoute: typeof AppInvoicesIdRoute
+  AppInvoicesIndexRoute: typeof AppInvoicesIndexRoute
+}
+
+const AppInvoicesRouteChildren: AppInvoicesRouteChildren = {
+  AppInvoicesIdRoute: AppInvoicesIdRoute,
+  AppInvoicesIndexRoute: AppInvoicesIndexRoute,
+}
+
+const AppInvoicesRouteWithChildren = AppInvoicesRoute._addFileChildren(
+  AppInvoicesRouteChildren,
+)
 
 interface AppRouteRouteChildren {
   AppClientsRoute: typeof AppClientsRoute
   AppDashboardRoute: typeof AppDashboardRoute
+  AppImportRoute: typeof AppImportRoute
+  AppInvoicesRoute: typeof AppInvoicesRouteWithChildren
   AppRateCardsRoute: typeof AppRateCardsRoute
+  AppShipmentsRoute: typeof AppShipmentsRoute
 }
 
 const AppRouteRouteChildren: AppRouteRouteChildren = {
   AppClientsRoute: AppClientsRoute,
   AppDashboardRoute: AppDashboardRoute,
+  AppImportRoute: AppImportRoute,
+  AppInvoicesRoute: AppInvoicesRouteWithChildren,
   AppRateCardsRoute: AppRateCardsRoute,
+  AppShipmentsRoute: AppShipmentsRoute,
 }
 
 const AppRouteRouteWithChildren = AppRouteRoute._addFileChildren(
