@@ -44,17 +44,17 @@ function Shipments() {
   async function add(e: React.FormEvent) {
     e.preventDefault();
     const amount = f.amount ? +f.amount : auto;
-    if (amount == null) return toast.error("No matching rate card. Enter the amount manually.");
+    if (amount == null) { toast.error("No matching rate card. Enter the amount manually."); return; }
     const { error } = await supabase.from("shipments").insert({ awb: f.awb.trim(), client_id: f.client_id, ship_date: f.ship_date, destination: f.destination, service: f.service, weight: +f.weight, pieces: +f.pieces, amount });
-    if (error) return toast.error(error.code === "23505" ? "This AWB already exists" : errMsg(error));
+    if (error) { toast.error(error.code === "23505" ? "This AWB already exists" : errMsg(error)); return; }
     toast.success("Shipment added");
     setF({ ...f, awb: "", destination: "", weight: "", amount: "" });
     qc.invalidateQueries({ queryKey: ["shipments"] });
   }
   async function del(r: Row) {
-    if (r.invoice_id) return toast.error("Already invoiced — delete the invoice first.");
+    if (r.invoice_id) { toast.error("Already invoiced — delete the invoice first."); return; }
     const { error } = await supabase.from("shipments").delete().eq("id", r.id);
-    if (error) return toast.error(errMsg(error));
+    if (error) { toast.error(errMsg(error)); return; }
     qc.invalidateQueries({ queryKey: ["shipments"] });
   }
   function exportXlsx() {

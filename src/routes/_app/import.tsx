@@ -22,7 +22,7 @@ function toISO(v: unknown): string {
   if (typeof v === "number") { const d = XLSX.SSF.parse_date_code(v); return `${d.y}-${String(d.m).padStart(2, "0")}-${String(d.d).padStart(2, "0")}`; }
   const s = String(v || "").trim();
   const m = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})$/);
-  if (m) { const y = m[3].length === 2 ? "20" + m[3] : m[3]; return `${y}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`; }
+  if (m) { const y = m[3]!.length === 2 ? "20" + m[3] : m[3]; return `${y}-${m[2]!.padStart(2, "0")}-${m[1]!.padStart(2, "0")}`; }
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
   return new Date().toISOString().slice(0, 10);
 }
@@ -37,14 +37,14 @@ function ImportPage() {
 
   async function onFile(file: File) {
     const wb = XLSX.read(await file.arrayBuffer(), { cellDates: true });
-    const json = XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[wb.SheetNames[0]], { defval: "" });
-    if (!json.length) return toast.error("Sheet is empty");
-    const headers = Object.keys(json[0]);
+    const json = XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[wb.SheetNames[0]!]!, { defval: "" });
+    if (!json.length) { toast.error("Sheet is empty"); return; }
+    const headers = Object.keys(json[0]!);
     const col = (k: keyof typeof FIELDS) => headers.find((h) => (FIELDS[k] as readonly string[]).includes(h.trim().toLowerCase()));
-    const c = Object.fromEntries((Object.keys(FIELDS) as (keyof typeof FIELDS)[]).map((k) => [k, col(k)]));
-    if (!c.awb || !c.client || !c.weight) return toast.error("Sheet needs columns: AWB, Client, Weight (also optional: Date, Destination, Service, Pieces, Amount)");
+    const c: Record<string, string | undefined> = Object.fromEntries((Object.keys(FIELDS) as (keyof typeof FIELDS)[]).map((k) => [k, col(k)]));
+    if (!c["awb"] || !c["client"] || !c["weight"]) { toast.error("Sheet needs columns: AWB, Client, Weight (also optional: Date, Destination, Service, Pieces, Amount)"); return; }
     setRows(json.map((r) => {
-      const p: Parsed = { awb: String(r[c.awb!]).trim(), date: toISO(c.date ? r[c.date] : ""), client: String(r[c.client!]).trim(), destination: c.destination ? String(r[c.destination]) : "", service: c.service && r[c.service] ? String(r[c.service]).trim() : "Standard", weight: Number(r[c.weight!]) || 0, pieces: c.pieces ? Number(r[c.pieces]) || 1 : 1, amount: c.amount && r[c.amount] !== "" ? Number(r[c.amount]) : null };
+      const p: Parsed = { awb: String(r[c["awb"]!]).trim(), date: toISO(c["date"] ? r[c["date"]] : ""), client: String(r[c["client"]!]).trim(), destination: c["destination"] ? String(r[c["destination"]]) : "", service: c["service"] && r[c["service"]] ? String(r[c["service"]]).trim() : "Standard", weight: Number(r[c["weight"]!]) || 0, pieces: c["pieces"] ? Number(r[c["pieces"]]) || 1 : 1, amount: c["amount"] && r[c["amount"]] !== "" ? Number(r[c["amount"]]) : null };
       if (!p.awb) p.error = "Missing AWB"; else if (!p.client) p.error = "Missing client";
       return p;
     }).filter((p) => p.awb || p.client));

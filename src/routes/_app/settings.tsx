@@ -26,7 +26,7 @@ function Settings() {
   async function save(e: React.FormEvent) {
     e.preventDefault();
     const { error } = await supabase.from("profiles").update(f).eq("id", data!.profile!.id);
-    if (error) return toast.error(errMsg(error));
+    if (error) { toast.error(errMsg(error)); return; }
     toast.success("Saved");
     qc.invalidateQueries({ queryKey: ["profile"] });
   }

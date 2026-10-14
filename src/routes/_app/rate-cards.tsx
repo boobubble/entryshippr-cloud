@@ -23,16 +23,16 @@ function RateCards() {
   async function add(e: React.FormEvent) {
     e.preventDefault();
     const row = { client_id: f.client_id || null, service: f.service.trim(), min_weight: +f.min_weight, max_weight: +f.max_weight, rate: +f.rate, extra_per_kg: +f.extra_per_kg };
-    if (row.max_weight < row.min_weight) return toast.error("Max weight must be ≥ min weight");
+    if (row.max_weight < row.min_weight) { toast.error("Max weight must be ≥ min weight"); return; }
     const { error } = await supabase.from("rate_cards").insert(row);
-    if (error) return toast.error(errMsg(error));
+    if (error) { toast.error(errMsg(error)); return; }
     toast.success("Slab added");
     setF({ ...f, min_weight: f.max_weight, max_weight: "", rate: "" });
     qc.invalidateQueries({ queryKey: ["rate_cards"] });
   }
   async function del(id: string) {
     const { error } = await supabase.from("rate_cards").delete().eq("id", id);
-    if (error) return toast.error(errMsg(error));
+    if (error) { toast.error(errMsg(error)); return; }
     qc.invalidateQueries({ queryKey: ["rate_cards"] });
   }
   const name = (id: string | null) => (id ? clients.find((c) => c.id === id)?.name || "?" : "Default (all clients)");

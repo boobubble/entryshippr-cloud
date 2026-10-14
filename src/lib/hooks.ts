@@ -65,6 +65,7 @@ export function calcAmount(cards: RateCard[], clientId: string, service: string,
   const inRange = pool.find((c) => weight >= Number(c.min_weight) && weight <= Number(c.max_weight));
   if (inRange) return Number(inRange.rate);
   const top = [...pool].sort((a, b) => Number(b.max_weight) - Number(a.max_weight))[0];
+  if (!top) return null;
   if (weight > Number(top.max_weight)) return Number(top.rate) + Math.ceil(weight - Number(top.max_weight)) * Number(top.extra_per_kg);
   return null;
 }

@@ -29,20 +29,20 @@ function Clients() {
     if (!edit) return;
     const { id, ...row } = edit;
     const res = id ? await supabase.from("clients").update(row).eq("id", id) : await supabase.from("clients").insert(row);
-    if (res.error) return toast.error(errMsg(res.error));
+    if (res.error) { toast.error(errMsg(res.error)); return; }
     toast.success("Client saved");
     setEdit(null);
     qc.invalidateQueries({ queryKey: ["clients"] });
   }
   async function toggle(c: Client) {
     const { error } = await supabase.from("clients").update({ active: !c.active }).eq("id", c.id);
-    if (error) return toast.error(errMsg(error));
+    if (error) { toast.error(errMsg(error)); return; }
     qc.invalidateQueries({ queryKey: ["clients"] });
   }
   async function remove(c: Client) {
     if (!confirm(`Delete ${c.name}? This also deletes their shipments.`)) return;
     const { error } = await supabase.from("clients").delete().eq("id", c.id);
-    if (error) return toast.error("Cannot delete a client that has invoices. Mark inactive instead.");
+    if (error) { toast.error("Cannot delete a client that has invoices. Mark inactive instead."); return; }
     qc.invalidateQueries({ queryKey: ["clients"] });
   }
   const list = clients.filter((c) => c.name.toLowerCase().includes(q.toLowerCase()));

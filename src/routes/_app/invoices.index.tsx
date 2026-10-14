@@ -66,7 +66,7 @@ function Invoices() {
   async function del(id: string) {
     if (!confirm("Delete this invoice? Its shipments become unbilled again.")) return;
     const { error } = await supabase.from("invoices").delete().eq("id", id);
-    if (error) return toast.error(errMsg(error));
+    if (error) { toast.error(errMsg(error)); return; }
     qc.invalidateQueries();
   }
 

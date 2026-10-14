@@ -62,7 +62,7 @@ function Billing() {
     finally { setBusy(null); }
   }
 
-  const feeDue = !me?.profile?.joining_fee_paid;
+  const feeDue = !me?.profile?.["joining_fee_paid"];
   return (
     <div>
       <PageHead title="Subscription" />

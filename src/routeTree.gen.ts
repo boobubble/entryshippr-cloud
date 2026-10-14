@@ -13,11 +13,14 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppRouteRouteImport } from './routes/_app/route'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
+import { Route as AppAdminRouteImport } from './routes/_app/admin'
+import { Route as AppBillingRouteImport } from './routes/_app/billing'
 import { Route as AppClientsRouteImport } from './routes/_app/clients'
 import { Route as AppDashboardRouteImport } from './routes/_app/dashboard'
 import { Route as AppImportRouteImport } from './routes/_app/import'
 import { Route as AppInvoicesRouteImport } from './routes/_app/invoices'
 import { Route as AppRateCardsRouteImport } from './routes/_app/rate-cards'
+import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppShipmentsRouteImport } from './routes/_app/shipments'
 import { Route as AppInvoicesIndexRouteImport } from './routes/_app/invoices.index'
 import { Route as AppInvoicesIdRouteImport } from './routes/_app/invoices.$id'
@@ -40,6 +43,16 @@ const ResetPasswordRoute = ResetPasswordRouteImport.update({
   id: '/reset-password',
   path: '/reset-password',
   getParentRoute: () => rootRouteImport,
+} as any)
+const AppAdminRoute = AppAdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppBillingRoute = AppBillingRouteImport.update({
+  id: '/billing',
+  path: '/billing',
+  getParentRoute: () => AppRouteRoute,
 } as any)
 const AppClientsRoute = AppClientsRouteImport.update({
   id: '/clients',
@@ -66,6 +79,11 @@ const AppRateCardsRoute = AppRateCardsRouteImport.update({
   path: '/rate-cards',
   getParentRoute: () => AppRouteRoute,
 } as any)
+const AppSettingsRoute = AppSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => AppRouteRoute,
+} as any)
 const AppShipmentsRoute = AppShipmentsRouteImport.update({
   id: '/shipments',
   path: '/shipments',
@@ -86,11 +104,14 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/reset-password': typeof ResetPasswordRoute
+  '/admin': typeof AppAdminRoute
+  '/billing': typeof AppBillingRoute
   '/clients': typeof AppClientsRoute
   '/dashboard': typeof AppDashboardRoute
   '/import': typeof AppImportRoute
   '/invoices': typeof AppInvoicesRouteWithChildren
   '/rate-cards': typeof AppRateCardsRoute
+  '/settings': typeof AppSettingsRoute
   '/shipments': typeof AppShipmentsRoute
   '/invoices/$id': typeof AppInvoicesIdRoute
   '/invoices/': typeof AppInvoicesIndexRoute
@@ -99,10 +120,13 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/reset-password': typeof ResetPasswordRoute
+  '/admin': typeof AppAdminRoute
+  '/billing': typeof AppBillingRoute
   '/clients': typeof AppClientsRoute
   '/dashboard': typeof AppDashboardRoute
   '/import': typeof AppImportRoute
   '/rate-cards': typeof AppRateCardsRoute
+  '/settings': typeof AppSettingsRoute
   '/shipments': typeof AppShipmentsRoute
   '/invoices/$id': typeof AppInvoicesIdRoute
   '/invoices': typeof AppInvoicesIndexRoute
@@ -113,11 +137,14 @@ export interface FileRoutesById {
   '/_app': typeof AppRouteRouteWithChildren
   '/auth': typeof AuthRoute
   '/reset-password': typeof ResetPasswordRoute
+  '/_app/admin': typeof AppAdminRoute
+  '/_app/billing': typeof AppBillingRoute
   '/_app/clients': typeof AppClientsRoute
   '/_app/dashboard': typeof AppDashboardRoute
   '/_app/import': typeof AppImportRoute
   '/_app/invoices': typeof AppInvoicesRouteWithChildren
   '/_app/rate-cards': typeof AppRateCardsRoute
+  '/_app/settings': typeof AppSettingsRoute
   '/_app/shipments': typeof AppShipmentsRoute
   '/_app/invoices/$id': typeof AppInvoicesIdRoute
   '/_app/invoices/': typeof AppInvoicesIndexRoute
@@ -128,11 +155,14 @@ export interface FileRouteTypes {
     | '/'
     | '/auth'
     | '/reset-password'
+    | '/admin'
+    | '/billing'
     | '/clients'
     | '/dashboard'
     | '/import'
     | '/invoices'
     | '/rate-cards'
+    | '/settings'
     | '/shipments'
     | '/invoices/$id'
     | '/invoices/'
@@ -141,10 +171,13 @@ export interface FileRouteTypes {
     | '/'
     | '/auth'
     | '/reset-password'
+    | '/admin'
+    | '/billing'
     | '/clients'
     | '/dashboard'
     | '/import'
     | '/rate-cards'
+    | '/settings'
     | '/shipments'
     | '/invoices/$id'
     | '/invoices'
@@ -154,11 +187,14 @@ export interface FileRouteTypes {
     | '/_app'
     | '/auth'
     | '/reset-password'
+    | '/_app/admin'
+    | '/_app/billing'
     | '/_app/clients'
     | '/_app/dashboard'
     | '/_app/import'
     | '/_app/invoices'
     | '/_app/rate-cards'
+    | '/_app/settings'
     | '/_app/shipments'
     | '/_app/invoices/$id'
     | '/_app/invoices/'
@@ -201,6 +237,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ResetPasswordRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_app/admin': {
+      id: '/_app/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AppAdminRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/_app/billing': {
+      id: '/_app/billing'
+      path: '/billing'
+      fullPath: '/billing'
+      preLoaderRoute: typeof AppBillingRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
     '/_app/clients': {
       id: '/_app/clients'
       path: '/clients'
@@ -234,6 +284,13 @@ declare module '@tanstack/react-router' {
       path: '/rate-cards'
       fullPath: '/rate-cards'
       preLoaderRoute: typeof AppRateCardsRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/_app/settings': {
+      id: '/_app/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof AppSettingsRouteImport
       parentRoute: typeof AppRouteRoute
     }
     '/_app/shipments': {
@@ -275,20 +332,26 @@ const AppInvoicesRouteWithChildren = AppInvoicesRoute._addFileChildren(
 )
 
 interface AppRouteRouteChildren {
+  AppAdminRoute: typeof AppAdminRoute
+  AppBillingRoute: typeof AppBillingRoute
   AppClientsRoute: typeof AppClientsRoute
   AppDashboardRoute: typeof AppDashboardRoute
   AppImportRoute: typeof AppImportRoute
   AppInvoicesRoute: typeof AppInvoicesRouteWithChildren
   AppRateCardsRoute: typeof AppRateCardsRoute
+  AppSettingsRoute: typeof AppSettingsRoute
   AppShipmentsRoute: typeof AppShipmentsRoute
 }
 
 const AppRouteRouteChildren: AppRouteRouteChildren = {
+  AppAdminRoute: AppAdminRoute,
+  AppBillingRoute: AppBillingRoute,
   AppClientsRoute: AppClientsRoute,
   AppDashboardRoute: AppDashboardRoute,
   AppImportRoute: AppImportRoute,
   AppInvoicesRoute: AppInvoicesRouteWithChildren,
   AppRateCardsRoute: AppRateCardsRoute,
+  AppSettingsRoute: AppSettingsRoute,
   AppShipmentsRoute: AppShipmentsRoute,
 }
 

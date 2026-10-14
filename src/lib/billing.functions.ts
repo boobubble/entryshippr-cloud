@@ -10,7 +10,7 @@ async function getUser(token: string): Promise<{ id: string; email: string }> {
 }
 
 async function rest(path: string, init: RequestInit = {}) {
-  const key = process.env.EXT_SUPABASE_SECRET_KEY!;
+  const key = process.env["EXT_SUPABASE_SECRET_KEY"]!;
   const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
     ...init,
     headers: { apikey: key, "Content-Type": "application/json", Prefer: "return=representation", ...(init.headers || {}) },
@@ -33,10 +33,10 @@ export const createOrder = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const user = await getUser(data.token);
     const [profile] = await rest(`profiles?id=eq.${user.id}&select=joining_fee_paid`);
-    const withFee = !profile?.joining_fee_paid;
+    const withFee = !profile?.["joining_fee_paid"];
     const amount = PLANS[data.plan].price + (withFee ? JOINING_FEE : 0);
-    const keyId = process.env.RAZORPAY_KEY_ID!;
-    const auth = btoa(`${keyId}:${process.env.RAZORPAY_KEY_SECRET}`);
+    const keyId = process.env["RAZORPAY_KEY_ID"]!;
+    const auth = btoa(`${keyId}:${process.env["RAZORPAY_KEY_SECRET"]}`);
     const r = await fetch("https://api.razorpay.com/v1/orders", {
       method: "POST",
       headers: { Authorization: `Basic ${auth}`, "Content-Type": "application/json" },
@@ -70,7 +70,7 @@ export const verifyPayment = createServerFn({ method: "POST" })
   .inputValidator((d: { token: string; orderId: string; paymentId: string; signature: string }) => d)
   .handler(async ({ data }) => {
     const user = await getUser(data.token);
-    const expected = await hmacHex(process.env.RAZORPAY_KEY_SECRET!, `${data.orderId}|${data.paymentId}`);
+    const expected = await hmacHex(process.env["RAZORPAY_KEY_SECRET"]!, `${data.orderId}|${data.paymentId}`);
     if (expected !== data.signature) throw new Error("Payment signature mismatch");
     const [pay] = await rest(`payments?razorpay_order_id=eq.${encodeURIComponent(data.orderId)}&owner_id=eq.${user.id}&select=*`);
     if (!pay) throw new Error("Order not found");

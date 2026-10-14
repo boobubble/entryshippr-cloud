@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { supabase } from "@/lib/supabase";
 
 export const Route = createFileRoute("/auth")({
-  validateSearch: (s: Record<string, unknown>) => ({ mode: s.mode === "signup" ? "signup" : s.mode === "forgot" ? "forgot" : undefined }) as { mode?: "signup" | "forgot" },
+  validateSearch: (s: Record<string, unknown>) => ({ mode: s["mode"] === "signup" ? "signup" : s["mode"] === "forgot" ? "forgot" : undefined }) as { mode?: "signup" | "forgot" },
   head: () => ({
     meta: [
       { title: "Log in or sign up — EntrySetu" },
