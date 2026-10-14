@@ -20,9 +20,6 @@ export const Route = createFileRoute("/api/public/razorpay-webhook")({
         const type = body.event || "";
         if (!eventId) return new Response("Missing event id", { status: 400 });
 
-        const fresh = await rest("rpc/record_webhook_event", { method: "POST", body: JSON.stringify({ p_event_id: eventId, p_event_type: type }) });
-        if (!fresh) return new Response("Duplicate", { status: 200 });
-
         const p = body.payload?.payment?.entity;
         if ((type === "payment.captured" || type === "order.paid") && p?.order_id && p.status === "captured" && p.currency === "INR") {
           try {
@@ -32,6 +29,8 @@ export const Route = createFileRoute("/api/public/razorpay-webhook")({
             return new Response("Activation failed", { status: 500 });
           }
         }
+        // Recorded only after successful processing so Razorpay retries still work; activation itself is idempotent.
+        await rest("rpc/record_webhook_event", { method: "POST", body: JSON.stringify({ p_event_id: eventId, p_event_type: type }) });
         return new Response("ok", { status: 200 });
       },
     },
