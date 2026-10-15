@@ -197,7 +197,7 @@ insert into public.shipments (client_id, awb, destination, service, shipment_typ
 select c2, 'TAM-F1', 'MUMBAI', 'Standard', 'NON-DOX', 1.5, 1.5, 0, 'manual', 120 from tam.c;
 insert into tam.ids select 'd2', public.create_invoice_draft((select c2 from tam.c), current_date - 30, current_date,
   array[(select id from public.shipments where awb = 'TAM-F1')]);
-insert into tam.ids select 'f2', (public.finalize_invoice_draft((select id from tam.ids where k = 'd2'))).id;
+insert into tam.ids select 'f2', public.finalize_invoice((select id from tam.ids where k = 'd2'));
 select tam.ok((select invoice_id = (select id from tam.ids where k = 'd2') and draft_invoice_id is null and amount = 120 from public.shipments where awb = 'TAM-F1'), 'typed manual shipment finalizes and links to issued invoice');
 reset role;
 
