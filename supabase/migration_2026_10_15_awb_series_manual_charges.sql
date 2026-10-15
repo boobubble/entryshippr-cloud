@@ -125,6 +125,9 @@ returns trigger language plpgsql security definer set search_path = '' as $$
 declare r record; v_bw numeric;
 begin
   if new.charge_mode = 'manual' then
+    if new.manual_amount is null or new.manual_amount <= 0 then
+      raise exception 'Enter manual charges above ₹0' using errcode = '23514';
+    end if;
     new.amount := new.manual_amount;
     new.rate_zone := null; new.rate_slab := null; new.rate_applied := null;
     new.pricing_status := 'priced'; new.review_reason := null;
