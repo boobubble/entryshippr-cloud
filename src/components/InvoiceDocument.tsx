@@ -39,6 +39,7 @@ export type InvoiceDocumentProps = {
     awb: string;
     receiver_name?: string | null;
     consignee_name?: string | null;
+    receiver_phone?: string | null;
     destination?: string | null;
     service: string;
     billing_weight?: Money | null;
@@ -48,6 +49,18 @@ export type InvoiceDocumentProps = {
     amount: Money;
   }[];
 };
+
+/** Invoice dates are shown as DD/MM/YY (e.g. 2026-10-15 -> 15/10/26). */
+export const invDate = (d?: string | null) => {
+  const m = String(d ?? "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[3]}/${m[2]}/${m[1]!.slice(2)}` : (d ?? "");
+};
+// A value made only of digits/phone symbols is a number, never a receiver name.
+const receiverOf = (s: { receiver_name?: string | null; consignee_name?: string | null }) => {
+  const n = s.receiver_name?.trim() || s.consignee_name?.trim() || "";
+  return n && !isPhone(n) ? n : "—";
+};
+const isPhone = (v: string) => /^[+\d\s()-]{6,}$/.test(v);
 
 export function InvoiceDocument({ seller, invoice: inv, shipments }: InvoiceDocumentProps) {
   const client = inv.clients;
@@ -83,9 +96,9 @@ export function InvoiceDocument({ seller, invoice: inv, shipments }: InvoiceDocu
           <h2 className="mb-2 text-base font-bold">{inv.kind === "gst" ? "TAX INVOICE" : "INVOICE"}</h2>
           {inv.status === "cancelled" && <p className="mb-2 font-bold text-destructive">CANCELLED</p>}
           <p><span className="font-semibold">Invoice number:</span> {inv.invoice_no}</p>
-          <p><span className="font-semibold">Invoice date:</span> {inv.invoice_date}</p>
+          <p><span className="font-semibold">Invoice date:</span> {invDate(inv.invoice_date)}</p>
           <p className="mt-2 font-semibold">Billing period</p>
-          <p>{inv.period_from} to {inv.period_to}</p>
+          <p>{invDate(inv.period_from)} to {invDate(inv.period_to)}</p>
         </div>
       </section>
 
@@ -97,9 +110,9 @@ export function InvoiceDocument({ seller, invoice: inv, shipments }: InvoiceDocu
         <tbody>
           {shipments.map((s) => (
             <tr key={s.id} className="border-b align-top">
-              <td>{s.ship_date}</td>
+              <td>{invDate(s.ship_date)}</td>
               <td className="font-mono">{s.awb}</td>
-              <td>{s.receiver_name?.trim() || s.consignee_name?.trim() || "—"}</td>
+              <td>{receiverOf(s)}{s.receiver_phone?.trim() && <span className="mt-1 block text-xs">Ph: {s.receiver_phone.trim()}</span>}</td>
               <td>{up(s.destination)}</td>
               <td>{s.service}</td>
               <td>{s.billing_weight != null && s.weight_unit ? `${+s.billing_weight} ${s.weight_unit}` : `${s.weight} kg`}{s.shipment_type && <span className="mt-1 block text-xs">{s.shipment_type}</span>}</td>

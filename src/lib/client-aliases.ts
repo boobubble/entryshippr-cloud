@@ -51,3 +51,15 @@ export async function addAlias(rawName: string, clientId: string, existing: Clie
   if (isMissing(error)) return "Excel names need the client mapping database update first";
   return error.message;
 }
+
+/** True once the optional receiver columns exist on shipments (migration_2026_10_15_receiver_details.sql). */
+export function useHasReceiverFields() {
+  return useQuery({
+    queryKey: ["has_receiver_fields"],
+    retry: false, staleTime: Infinity,
+    queryFn: async () => {
+      const { error } = await supabase.from("shipments").select("receiver_name, receiver_phone").limit(1);
+      return !error;
+    },
+  });
+}
