@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -193,51 +193,42 @@ function SlabTable({ service, unit, zones, rows, errors, onChange }: { service: 
 
 function ZoneManager({ zones, disabled }: { zones: Zone[]; disabled: boolean }) {
   const qc = useQueryClient();
-  const [edit, setEdit] = useState<Record<string, { name: string; dest: string }>>({});
-  const [nw, setNw] = useState({ name: "", dest: "" });
-  const parse = (s: string) => [...new Set(s.split(",").map((x) => x.trim()).filter(Boolean))];
+  const [edit, setEdit] = useState<Record<string, string>>({});
+  const [nw, setNw] = useState("");
   const refresh = () => qc.invalidateQueries({ queryKey: ["zones"] });
 
   async function add(e: React.FormEvent) {
     e.preventDefault();
-    const { error } = await supabase.from("zones").insert({ name: nw.name.trim(), destinations: parse(nw.dest), sort_order: zones.length });
+    const { error } = await supabase.from("zones").insert({ name: nw.trim(), sort_order: zones.length });
     if (error) { toast.error(error.code === "23505" ? "A zone with this name already exists" : errMsg(error)); return; }
-    setNw({ name: "", dest: "" }); refresh();
+    setNw(""); refresh();
   }
   async function saveZone(z: Zone) {
-    const v = edit[z.id]!;
-    const { error } = await supabase.from("zones").update({ name: v.name.trim(), destinations: parse(v.dest) }).eq("id", z.id);
+    const { error } = await supabase.from("zones").update({ name: edit[z.id]!.trim() }).eq("id", z.id);
     if (error) { toast.error(errMsg(error)); return; }
     const { [z.id]: _, ...rest } = edit; setEdit(rest); toast.success("Zone saved"); refresh();
   }
   async function del(z: Zone) {
-    if (!window.confirm(`Delete zone "${z.name}"? Its rates in every rate card will stop applying.`)) return;
+    if (!window.confirm(`Delete zone "${z.name}"? Its rates stop applying and its cities become unassigned.`)) return;
     const { error } = await supabase.from("zones").delete().eq("id", z.id);
     if (error) { toast.error(errMsg(error)); return; }
-    refresh();
+    refresh(); qc.invalidateQueries({ queryKey: ["seller_city_zones"] });
   }
 
   return (
     <section className="rounded-xl border bg-card p-4">
       <h2 className="mb-1 font-semibold">Zones</h2>
-      <p className="mb-3 text-sm text-muted-foreground">List the destinations in each zone, separated by commas. They must match the destination written in your shipments or Excel sheet (capital letters don't matter).</p>
+      <p className="mb-3 text-sm text-muted-foreground">Create your zones here, then choose which cities belong to each zone on the <Link to="/cities" className="text-primary underline">Cities & zones</Link> page.</p>
       <div className="space-y-2">
-        {zones.map((z) => {
-          const v = edit[z.id];
-          return (
-            <div key={z.id} className="grid gap-2 md:grid-cols-[12rem_1fr_auto] md:items-center">
-              <Input value={v ? v.name : z.name} onChange={(e) => setEdit({ ...edit, [z.id]: { name: e.target.value, dest: v ? v.dest : z.destinations.join(", ") } })} />
-              <Input value={v ? v.dest : z.destinations.join(", ")} placeholder="e.g. Mumbai, Thane, Navi Mumbai" onChange={(e) => setEdit({ ...edit, [z.id]: { name: v ? v.name : z.name, dest: e.target.value } })} />
-              <div className="flex gap-1">
-                <Button size="sm" disabled={!v} onClick={() => saveZone(z)}>Save</Button>
-                <Button size="sm" variant="ghost" onClick={() => del(z)}>Delete</Button>
-              </div>
-            </div>
-          );
-        })}
-        <form onSubmit={add} className="grid gap-2 md:grid-cols-[12rem_1fr_auto] md:items-center">
-          <Input required placeholder="New zone name" value={nw.name} onChange={(e) => setNw({ ...nw, name: e.target.value })} disabled={disabled} />
-          <Input placeholder="Destinations, comma separated" value={nw.dest} onChange={(e) => setNw({ ...nw, dest: e.target.value })} disabled={disabled} />
+        {zones.map((z) => (
+          <div key={z.id} className="flex flex-wrap items-center gap-2">
+            <Input className="w-56" value={edit[z.id] ?? z.name} onChange={(e) => setEdit({ ...edit, [z.id]: e.target.value })} />
+            <Button size="sm" disabled={edit[z.id] == null} onClick={() => saveZone(z)}>Save</Button>
+            <Button size="sm" variant="ghost" onClick={() => del(z)}>Delete</Button>
+          </div>
+        ))}
+        <form onSubmit={add} className="flex flex-wrap items-center gap-2">
+          <Input required className="w-56" placeholder="New zone name" value={nw} onChange={(e) => setNw(e.target.value)} disabled={disabled} />
           <Button size="sm" variant="outline" disabled={disabled}>Add zone</Button>
         </form>
       </div>

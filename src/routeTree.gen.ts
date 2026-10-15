@@ -15,6 +15,7 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as AppAdminRouteImport } from './routes/_app/admin'
 import { Route as AppBillingRouteImport } from './routes/_app/billing'
+import { Route as AppCitiesRouteImport } from './routes/_app/cities'
 import { Route as AppClientsRouteImport } from './routes/_app/clients'
 import { Route as AppDashboardRouteImport } from './routes/_app/dashboard'
 import { Route as AppImportRouteImport } from './routes/_app/import'
@@ -53,6 +54,11 @@ const AppAdminRoute = AppAdminRouteImport.update({
 const AppBillingRoute = AppBillingRouteImport.update({
   id: '/billing',
   path: '/billing',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppCitiesRoute = AppCitiesRouteImport.update({
+  id: '/cities',
+  path: '/cities',
   getParentRoute: () => AppRouteRoute,
 } as any)
 const AppClientsRoute = AppClientsRouteImport.update({
@@ -113,6 +119,7 @@ export interface FileRoutesByFullPath {
   '/reset-password': typeof ResetPasswordRoute
   '/admin': typeof AppAdminRoute
   '/billing': typeof AppBillingRoute
+  '/cities': typeof AppCitiesRoute
   '/clients': typeof AppClientsRoute
   '/dashboard': typeof AppDashboardRoute
   '/import': typeof AppImportRoute
@@ -130,6 +137,7 @@ export interface FileRoutesByTo {
   '/reset-password': typeof ResetPasswordRoute
   '/admin': typeof AppAdminRoute
   '/billing': typeof AppBillingRoute
+  '/cities': typeof AppCitiesRoute
   '/clients': typeof AppClientsRoute
   '/dashboard': typeof AppDashboardRoute
   '/import': typeof AppImportRoute
@@ -148,6 +156,7 @@ export interface FileRoutesById {
   '/reset-password': typeof ResetPasswordRoute
   '/_app/admin': typeof AppAdminRoute
   '/_app/billing': typeof AppBillingRoute
+  '/_app/cities': typeof AppCitiesRoute
   '/_app/clients': typeof AppClientsRoute
   '/_app/dashboard': typeof AppDashboardRoute
   '/_app/import': typeof AppImportRoute
@@ -167,6 +176,7 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/admin'
     | '/billing'
+    | '/cities'
     | '/clients'
     | '/dashboard'
     | '/import'
@@ -184,6 +194,7 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/admin'
     | '/billing'
+    | '/cities'
     | '/clients'
     | '/dashboard'
     | '/import'
@@ -201,6 +212,7 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/_app/admin'
     | '/_app/billing'
+    | '/_app/cities'
     | '/_app/clients'
     | '/_app/dashboard'
     | '/_app/import'
@@ -263,6 +275,13 @@ declare module '@tanstack/react-router' {
       path: '/billing'
       fullPath: '/billing'
       preLoaderRoute: typeof AppBillingRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/_app/cities': {
+      id: '/_app/cities'
+      path: '/cities'
+      fullPath: '/cities'
+      preLoaderRoute: typeof AppCitiesRouteImport
       parentRoute: typeof AppRouteRoute
     }
     '/_app/clients': {
@@ -355,6 +374,7 @@ const AppInvoicesRouteWithChildren = AppInvoicesRoute._addFileChildren(
 interface AppRouteRouteChildren {
   AppAdminRoute: typeof AppAdminRoute
   AppBillingRoute: typeof AppBillingRoute
+  AppCitiesRoute: typeof AppCitiesRoute
   AppClientsRoute: typeof AppClientsRoute
   AppDashboardRoute: typeof AppDashboardRoute
   AppImportRoute: typeof AppImportRoute
@@ -367,6 +387,7 @@ interface AppRouteRouteChildren {
 const AppRouteRouteChildren: AppRouteRouteChildren = {
   AppAdminRoute: AppAdminRoute,
   AppBillingRoute: AppBillingRoute,
+  AppCitiesRoute: AppCitiesRoute,
   AppClientsRoute: AppClientsRoute,
   AppDashboardRoute: AppDashboardRoute,
   AppImportRoute: AppImportRoute,

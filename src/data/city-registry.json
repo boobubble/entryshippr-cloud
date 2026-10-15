@@ -1,0 +1,525 @@
+[
+{
+"name": "Mumbai",
+"state": "Maharashtra",
+"aliases": [
+"Bombay",
+"Mumbai City"
+]
+},
+{
+"name": "Navi Mumbai",
+"state": "Maharashtra",
+"aliases": [
+"New Bombay"
+]
+},
+{
+"name": "Thane",
+"state": "Maharashtra",
+"aliases": []
+},
+{
+"name": "Pune",
+"state": "Maharashtra",
+"aliases": [
+"Poona"
+]
+},
+{
+"name": "Nagpur",
+"state": "Maharashtra",
+"aliases": []
+},
+{
+"name": "Nashik",
+"state": "Maharashtra",
+"aliases": [
+"Nasik"
+]
+},
+{
+"name": "Aurangabad",
+"state": "Maharashtra",
+"aliases": [
+"Chhatrapati Sambhajinagar",
+"Sambhajinagar"
+]
+},
+{
+"name": "Aurangabad",
+"state": "Bihar",
+"aliases": []
+},
+{
+"name": "Solapur",
+"state": "Maharashtra",
+"aliases": [
+"Sholapur"
+]
+},
+{
+"name": "Kolhapur",
+"state": "Maharashtra",
+"aliases": []
+},
+{
+"name": "Delhi",
+"state": "Delhi",
+"aliases": [
+"New Delhi",
+"Dilli"
+]
+},
+{
+"name": "Gurugram",
+"state": "Haryana",
+"aliases": [
+"Gurgaon"
+]
+},
+{
+"name": "Faridabad",
+"state": "Haryana",
+"aliases": []
+},
+{
+"name": "Noida",
+"state": "Uttar Pradesh",
+"aliases": [
+"Gautam Buddh Nagar"
+]
+},
+{
+"name": "Ghaziabad",
+"state": "Uttar Pradesh",
+"aliases": []
+},
+{
+"name": "Lucknow",
+"state": "Uttar Pradesh",
+"aliases": []
+},
+{
+"name": "Kanpur",
+"state": "Uttar Pradesh",
+"aliases": [
+"Cawnpore"
+]
+},
+{
+"name": "Agra",
+"state": "Uttar Pradesh",
+"aliases": []
+},
+{
+"name": "Varanasi",
+"state": "Uttar Pradesh",
+"aliases": [
+"Benares",
+"Banaras",
+"Kashi"
+]
+},
+{
+"name": "Prayagraj",
+"state": "Uttar Pradesh",
+"aliases": [
+"Allahabad"
+]
+},
+{
+"name": "Meerut",
+"state": "Uttar Pradesh",
+"aliases": []
+},
+{
+"name": "Hamirpur",
+"state": "Uttar Pradesh",
+"aliases": []
+},
+{
+"name": "Hamirpur",
+"state": "Himachal Pradesh",
+"aliases": []
+},
+{
+"name": "Pratapgarh",
+"state": "Uttar Pradesh",
+"aliases": []
+},
+{
+"name": "Pratapgarh",
+"state": "Rajasthan",
+"aliases": []
+},
+{
+"name": "Bengaluru",
+"state": "Karnataka",
+"aliases": [
+"Bangalore"
+]
+},
+{
+"name": "Mysuru",
+"state": "Karnataka",
+"aliases": [
+"Mysore"
+]
+},
+{
+"name": "Mangaluru",
+"state": "Karnataka",
+"aliases": [
+"Mangalore"
+]
+},
+{
+"name": "Hubballi",
+"state": "Karnataka",
+"aliases": [
+"Hubli"
+]
+},
+{
+"name": "Belagavi",
+"state": "Karnataka",
+"aliases": [
+"Belgaum"
+]
+},
+{
+"name": "Chennai",
+"state": "Tamil Nadu",
+"aliases": [
+"Madras"
+]
+},
+{
+"name": "Coimbatore",
+"state": "Tamil Nadu",
+"aliases": [
+"Kovai"
+]
+},
+{
+"name": "Madurai",
+"state": "Tamil Nadu",
+"aliases": []
+},
+{
+"name": "Tiruchirappalli",
+"state": "Tamil Nadu",
+"aliases": [
+"Trichy"
+]
+},
+{
+"name": "Salem",
+"state": "Tamil Nadu",
+"aliases": []
+},
+{
+"name": "Hyderabad",
+"state": "Telangana",
+"aliases": [
+"Secunderabad"
+]
+},
+{
+"name": "Warangal",
+"state": "Telangana",
+"aliases": []
+},
+{
+"name": "Visakhapatnam",
+"state": "Andhra Pradesh",
+"aliases": [
+"Vizag",
+"Vishakhapatnam"
+]
+},
+{
+"name": "Vijayawada",
+"state": "Andhra Pradesh",
+"aliases": [
+"Bezawada"
+]
+},
+{
+"name": "Tirupati",
+"state": "Andhra Pradesh",
+"aliases": []
+},
+{
+"name": "Kolkata",
+"state": "West Bengal",
+"aliases": [
+"Calcutta"
+]
+},
+{
+"name": "Howrah",
+"state": "West Bengal",
+"aliases": []
+},
+{
+"name": "Siliguri",
+"state": "West Bengal",
+"aliases": []
+},
+{
+"name": "Durgapur",
+"state": "West Bengal",
+"aliases": []
+},
+{
+"name": "Ahmedabad",
+"state": "Gujarat",
+"aliases": [
+"Amdavad"
+]
+},
+{
+"name": "Surat",
+"state": "Gujarat",
+"aliases": []
+},
+{
+"name": "Vadodara",
+"state": "Gujarat",
+"aliases": [
+"Baroda"
+]
+},
+{
+"name": "Rajkot",
+"state": "Gujarat",
+"aliases": []
+},
+{
+"name": "Gandhinagar",
+"state": "Gujarat",
+"aliases": []
+},
+{
+"name": "Bhavnagar",
+"state": "Gujarat",
+"aliases": []
+},
+{
+"name": "Jaipur",
+"state": "Rajasthan",
+"aliases": []
+},
+{
+"name": "Jodhpur",
+"state": "Rajasthan",
+"aliases": []
+},
+{
+"name": "Udaipur",
+"state": "Rajasthan",
+"aliases": []
+},
+{
+"name": "Kota",
+"state": "Rajasthan",
+"aliases": []
+},
+{
+"name": "Ajmer",
+"state": "Rajasthan",
+"aliases": []
+},
+{
+"name": "Bhopal",
+"state": "Madhya Pradesh",
+"aliases": []
+},
+{
+"name": "Indore",
+"state": "Madhya Pradesh",
+"aliases": []
+},
+{
+"name": "Gwalior",
+"state": "Madhya Pradesh",
+"aliases": []
+},
+{
+"name": "Jabalpur",
+"state": "Madhya Pradesh",
+"aliases": [
+"Jubbulpore"
+]
+},
+{
+"name": "Raipur",
+"state": "Chhattisgarh",
+"aliases": []
+},
+{
+"name": "Bilaspur",
+"state": "Chhattisgarh",
+"aliases": []
+},
+{
+"name": "Bilaspur",
+"state": "Himachal Pradesh",
+"aliases": []
+},
+{
+"name": "Patna",
+"state": "Bihar",
+"aliases": []
+},
+{
+"name": "Gaya",
+"state": "Bihar",
+"aliases": []
+},
+{
+"name": "Ranchi",
+"state": "Jharkhand",
+"aliases": []
+},
+{
+"name": "Jamshedpur",
+"state": "Jharkhand",
+"aliases": [
+"Tatanagar"
+]
+},
+{
+"name": "Dhanbad",
+"state": "Jharkhand",
+"aliases": []
+},
+{
+"name": "Bhubaneswar",
+"state": "Odisha",
+"aliases": []
+},
+{
+"name": "Cuttack",
+"state": "Odisha",
+"aliases": []
+},
+{
+"name": "Guwahati",
+"state": "Assam",
+"aliases": [
+"Gauhati"
+]
+},
+{
+"name": "Chandigarh",
+"state": "Chandigarh",
+"aliases": []
+},
+{
+"name": "Ludhiana",
+"state": "Punjab",
+"aliases": []
+},
+{
+"name": "Amritsar",
+"state": "Punjab",
+"aliases": []
+},
+{
+"name": "Jalandhar",
+"state": "Punjab",
+"aliases": [
+"Jullundur"
+]
+},
+{
+"name": "Mohali",
+"state": "Punjab",
+"aliases": [
+"Sahibzada Ajit Singh Nagar"
+]
+},
+{
+"name": "Dehradun",
+"state": "Uttarakhand",
+"aliases": []
+},
+{
+"name": "Haridwar",
+"state": "Uttarakhand",
+"aliases": [
+"Hardwar"
+]
+},
+{
+"name": "Shimla",
+"state": "Himachal Pradesh",
+"aliases": [
+"Simla"
+]
+},
+{
+"name": "Srinagar",
+"state": "Jammu and Kashmir",
+"aliases": []
+},
+{
+"name": "Jammu",
+"state": "Jammu and Kashmir",
+"aliases": []
+},
+{
+"name": "Thiruvananthapuram",
+"state": "Kerala",
+"aliases": [
+"Trivandrum"
+]
+},
+{
+"name": "Kochi",
+"state": "Kerala",
+"aliases": [
+"Cochin",
+"Ernakulam"
+]
+},
+{
+"name": "Kozhikode",
+"state": "Kerala",
+"aliases": [
+"Calicut"
+]
+},
+{
+"name": "Thrissur",
+"state": "Kerala",
+"aliases": [
+"Trichur"
+]
+},
+{
+"name": "Panaji",
+"state": "Goa",
+"aliases": [
+"Panjim"
+]
+},
+{
+"name": "Margao",
+"state": "Goa",
+"aliases": [
+"Madgaon"
+]
+},
+{
+"name": "Puducherry",
+"state": "Puducherry",
+"aliases": [
+"Pondicherry",
+"Pondy"
+]
+}
+]
