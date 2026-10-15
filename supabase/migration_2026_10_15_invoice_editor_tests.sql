@@ -178,8 +178,6 @@ select tie.ok((select status = 'issued' and seq is not null and fy = (select fy 
                from public.invoices i join public.invoice_series s on s.owner_id = i.owner_id and s.fy = i.fy and s.kind = i.kind
                where i.id = (select id from tie.ids where k = 'd1')), 'auto number assigned, total kept');
 select tie.ok((select count(*) = 2 from public.shipments where invoice_id = (select id from tie.ids where k = 'd1') and draft_invoice_id is null), 'shipments billed');
-insert into tie.ids select 'no1', null;   -- placeholder row keeps ids table writable
-update tie.ids set id = null where k = 'no1';
 
 -- J. Issued invoice immutable for every role
 select tie.expect_fail($$select public.save_invoice_draft((select id from tie.ids where k = 'd1'), '{}', '[]', '[]')$$, 'cannot save issued invoice', '{P0001}', 'Draft not found%');
@@ -229,7 +227,11 @@ select tie.expect_fail($$select public.save_invoice_draft((select id from tie.id
 select public.finalize_invoice((select id from tie.ids where k = 'd3'));
 select tie.ok((select i3.invoice_no <> i1.invoice_no and i3.seq > i1.seq from public.invoices i1, public.invoices i3
                where i1.id = (select id from tie.ids where k = 'd1') and i3.id = (select id from tie.ids where k = 'd3')), 'reissue gets a new, higher number');
-select tie.expect_fail($$select public.cancel_invoice((select id from tie.ids where k = 'd2'), null) where false; update public.invoices set status = 'issued' where id = (select id from tie.ids where k = 'd1')$$, 'cannot un-cancel', '{42501}');
+select tie.expect_fail($$update public.invoices set status = 'issued' where id = (select id from tie.ids where k = 'd1')$$, 'seller cannot un-cancel', '{42501}');
+reset role;
+select tie.expect_fail($$update public.invoices set status = 'issued', cancelled_at = null where id = (select id from tie.ids where k = 'd1')$$, 'owner role cannot un-cancel', '{P0001}', '%immutable%');
+set local role authenticated;
+select tie.as_user('00000000-0000-0000-0000-0000000e0aa1');
 
 -- M. Series format (prefix, FY format, separator, padding)
 select public.set_invoice_series_format((select fy from tie.c), 'gst', 'YY-YY', '-', 3);
