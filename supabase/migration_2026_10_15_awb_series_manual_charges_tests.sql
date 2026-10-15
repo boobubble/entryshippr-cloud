@@ -2,7 +2,9 @@
 -- EntrySetu V1 — AWB series + Manual charges tests. DEVELOPMENT ONLY (zfvnqcyqxxipjaugkmvf).
 -- Run AFTER migration_2026_10_15_awb_series_manual_charges.sql. One transaction,
 -- ROLLED BACK at the end: no test data kept, no real invoice numbers used.
--- Last notice: "ALL AWB SERIES AND MANUAL CHARGE TESTS PASSED".
+-- Last notice: "ALL AWB SERIES AND MANUAL CHARGE TESTS PASSED (85 assertions)" — raised only if all 85
+-- assertions ran and passed. Everything here is ONE session: duplicate checks are sequential.
+-- Real two-session concurrency: scripts/awb_concurrency_check.py (throwaway local DB only).
 -- =====================================================================
 begin;
 create schema tam;
