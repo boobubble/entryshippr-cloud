@@ -145,13 +145,14 @@
 
 body{font-family:'Manrope',system-ui,sans-serif}
 h1,h2,h3,.font-display{font-family:'Sora',sans-serif}
-.invoice-document{min-width:680px;max-width:210mm;margin-inline:auto;padding:32px;font-size:12px;line-height:1.5;overflow-wrap:anywhere;letter-spacing:0}
-.invoice-shipments th,.invoice-shipments td{padding:10px 7px}
+.invoice-document{min-width:680px;max-width:210mm;margin-inline:auto;padding:32px;font-size:12px;line-height:1.3;letter-spacing:0}
+.invoice-shipments th,.invoice-shipments td{padding:4px 6px;vertical-align:middle}
 .invoice-shipments th{font-size:11px;font-weight:700}
-.invoice-date-column{width:14%}
-.invoice-awb-column{width:16%}
-.invoice-service-column{width:10%}
-.invoice-weight-column{width:11%}
+.invoice-receiver-cell{max-width:0;overflow:hidden;text-overflow:ellipsis}
+.invoice-date-column{width:11%}
+.invoice-awb-column{width:17%}
+.invoice-service-column{width:11%}
+.invoice-weight-column{width:15%}
 .invoice-amount-column{width:14%}
 @page{size:A4 portrait;margin:14mm 12mm}
 @media print{
@@ -166,6 +167,6 @@ h1,h2,h3,.font-display{font-family:'Sora',sans-serif}
   .invoice-shipments{border-collapse:collapse}
   .invoice-shipments thead{display:table-header-group}
   .invoice-shipments tr{break-inside:avoid;page-break-inside:avoid}
-  .invoice-shipments th,.invoice-shipments td{padding:7px 5px}
+  .invoice-shipments th,.invoice-shipments td{padding:3px 5px}
   .invoice-shipments th{font-size:8pt}
 }
