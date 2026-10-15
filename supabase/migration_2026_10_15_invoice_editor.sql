@@ -270,47 +270,74 @@ alter table public.shipments add constraint shipments_draft_or_billed_chk check 
 create index if not exists shipments_draft_idx on public.shipments (owner_id, draft_invoice_id) where draft_invoice_id is not null;
 -- No INSERT/UPDATE grant on draft_invoice_id: only the functions below set it.
 
--- Reserved (draft) shipments may change in exactly two ways:
---   1. FINALIZE: draft_invoice_id = X -> NULL and invoice_id NULL -> X, in one
---      row update, only while finalize_invoice(X) has armed the transaction-local
---      flag 'entrysetu.finalizing' = X, only when invoice X is already 'issued'
---      for the same owner, and with no other column changed.
---   2. RELEASE: draft_invoice_id -> NULL (invoice_id stays NULL) by trusted
---      functions only (save/discard draft, ON DELETE SET NULL), never by API users.
--- Everything else on a reserved shipment is blocked, for every role.
+-- Reserved (draft) shipment protection.
+-- Authorization does NOT come from any session setting (set_config values can be
+-- forged by any caller). Instead the editor functions write a one-shot grant row
+-- into entrysetu_private.shipment_transfer_grants, keyed by the CURRENT top-level
+-- transaction id. That schema has no USAGE/privileges for anon, authenticated or
+-- service_role, so only SECURITY DEFINER functions owned by the migration owner
+-- can create grants. Grants are deleted before the function returns (and vanish
+-- on rollback), so they cannot leak to later statements or transactions.
+create schema if not exists entrysetu_private;
+revoke all on schema entrysetu_private from public, anon, authenticated, service_role;
+create table if not exists entrysetu_private.shipment_transfer_grants (
+  xact_id    bigint not null,
+  invoice_id uuid   not null,
+  action     text   not null check (action in ('finalize', 'release')),
+  primary key (xact_id, invoice_id, action)
+);
+revoke all on entrysetu_private.shipment_transfer_grants from public, anon, authenticated, service_role;
+
+-- A reserved shipment (draft_invoice_id is not null) may change in exactly two ways,
+-- for EVERY role (service_role and trusted maintenance included):
+--   FINALIZE: draft_invoice_id X -> NULL and invoice_id NULL -> X in one row update,
+--             invoice X already 'issued' for the same owner, a 'finalize' grant
+--             for X exists in this transaction, and no other column changes.
+--   RELEASE:  draft_invoice_id X -> NULL, invoice_id stays NULL, no other column
+--             changes, and a 'release' grant for X exists in this transaction.
+-- Everything else (edits, re-pointing, deletes, ON DELETE SET NULL from deleting
+-- a draft directly) is blocked. Only a database superuser can bypass this.
 create or replace function public.shipments_draft_guard()
-returns trigger language plpgsql set search_path = '' as $$
-declare v_ok boolean;
+returns trigger language plpgsql security definer set search_path = '' as $$
+declare v_same boolean; v_xid bigint := txid_current();
 begin
-  -- Never link a shipment to an issued invoice while it is still reserved.
   if tg_op = 'UPDATE' and new.invoice_id is not null and new.draft_invoice_id is not null then
     raise exception 'Shipment % is on a draft invoice. Finalize or discard that draft first.', old.awb using errcode = 'P0001';
   end if;
   if old.draft_invoice_id is null then
     return coalesce(new, old);
   end if;
-
-  if tg_op = 'UPDATE' and old.invoice_id is null and new.invoice_id is not null then
-    -- Path 1: finalize hand-over
-    select new.invoice_id = old.draft_invoice_id
-       and new.draft_invoice_id is null
-       and coalesce(current_setting('entrysetu.finalizing', true), '') = old.draft_invoice_id::text
-       and exists (select 1 from public.invoices i
-                    where i.id = old.draft_invoice_id and i.owner_id = old.owner_id and i.status = 'issued')
-       and (to_jsonb(new) - 'invoice_id' - 'draft_invoice_id' - 'updated_at')
-         = (to_jsonb(old) - 'invoice_id' - 'draft_invoice_id' - 'updated_at')
-      into v_ok;
-    if v_ok then return new; end if;
-    raise exception 'Shipment % is on a draft invoice and can only be billed by finalizing that draft.', old.awb
-      using errcode = 'P0001';
-  end if;
-
-  if current_user in ('authenticated', 'anon') then
+  if tg_op = 'DELETE' then
     raise exception 'Shipment % is on a draft invoice. Remove it from the draft or discard the draft first.', old.awb
       using errcode = 'P0001';
   end if;
-  return coalesce(new, old);   -- Path 2 / trusted maintenance by editor functions
+
+  v_same := (to_jsonb(new) - 'invoice_id' - 'draft_invoice_id' - 'updated_at')
+          = (to_jsonb(old) - 'invoice_id' - 'draft_invoice_id' - 'updated_at');
+
+  if v_same and old.invoice_id is null and new.draft_invoice_id is null
+     and new.invoice_id = old.draft_invoice_id
+     and exists (select 1 from entrysetu_private.shipment_transfer_grants g
+                  where g.xact_id = v_xid and g.invoice_id = old.draft_invoice_id and g.action = 'finalize')
+     and exists (select 1 from public.invoices i
+                  where i.id = old.draft_invoice_id and i.owner_id = old.owner_id and i.status = 'issued') then
+    return new;                                              -- FINALIZE
+  end if;
+
+  if v_same and old.invoice_id is null and new.invoice_id is null and new.draft_invoice_id is null
+     and exists (select 1 from entrysetu_private.shipment_transfer_grants g
+                  where g.xact_id = v_xid and g.invoice_id = old.draft_invoice_id and g.action = 'release') then
+    return new;                                              -- RELEASE
+  end if;
+
+  if old.invoice_id is null and new.invoice_id is not null then
+    raise exception 'Shipment % is on a draft invoice and can only be billed by finalizing that draft.', old.awb
+      using errcode = 'P0001';
+  end if;
+  raise exception 'Shipment % is on a draft invoice. Remove it from the draft or discard the draft first.', old.awb
+    using errcode = 'P0001';
 end $$;
+revoke all on function public.shipments_draft_guard() from public, anon, authenticated, service_role;
 drop trigger if exists shipments_draft_guard on public.shipments;
 create trigger shipments_draft_guard before update or delete on public.shipments
   for each row execute function public.shipments_draft_guard();
@@ -609,8 +636,10 @@ begin
     raise exception 'A shipment appears twice on the invoice' using errcode = 'P0001';
   end if;
 
+  insert into entrysetu_private.shipment_transfer_grants values (txid_current(), v.id, 'release') on conflict do nothing;
   update public.shipments set draft_invoice_id = null
    where owner_id = v_uid and draft_invoice_id = v.id and not (id = any(v_ids));
+  delete from entrysetu_private.shipment_transfer_grants where xact_id = txid_current() and invoice_id = v.id;
   delete from public.invoice_lines where invoice_id = v.id and (shipment_id is null or not (shipment_id = any(v_ids)));
   select array_agg(x) into v_new from unnest(v_ids) x
    where not exists (select 1 from public.invoice_lines l where l.invoice_id = v.id and l.shipment_id = x);
@@ -733,11 +762,11 @@ begin
   exception when unique_violation then
     raise exception 'Invoice number % is already used. Please try again.', v_no using errcode = 'P0001';
   end;
-  -- Arm the draft guard for exactly this invoice, hand the shipments over, disarm.
-  perform set_config('entrysetu.finalizing', v.id::text, true);
+  -- One-shot grant for exactly this invoice and transaction; removed right after.
+  insert into entrysetu_private.shipment_transfer_grants values (txid_current(), v.id, 'finalize');
   update public.shipments set invoice_id = v.id, draft_invoice_id = null
    where owner_id = v_uid and draft_invoice_id = v.id;
-  perform set_config('entrysetu.finalizing', '', true);
+  delete from entrysetu_private.shipment_transfer_grants where xact_id = txid_current() and invoice_id = v.id;
   if exists (select 1 from public.shipments where owner_id = v_uid and draft_invoice_id = v.id) then
     raise exception 'Could not move all draft shipments to the invoice' using errcode = 'P0001';
   end if;
@@ -751,7 +780,9 @@ begin
   if v_uid is null then raise exception 'Not signed in'; end if;
   perform 1 from public.invoices where id = p_invoice_id and owner_id = v_uid and status = 'draft' for update;
   if not found then raise exception 'Draft not found or already finalized' using errcode = 'P0001'; end if;
+  insert into entrysetu_private.shipment_transfer_grants values (txid_current(), p_invoice_id, 'release') on conflict do nothing;
   update public.shipments set draft_invoice_id = null where owner_id = v_uid and draft_invoice_id = p_invoice_id;
+  delete from entrysetu_private.shipment_transfer_grants where xact_id = txid_current() and invoice_id = p_invoice_id;
   delete from public.invoice_charges where invoice_id = p_invoice_id;
   delete from public.invoice_lines where invoice_id = p_invoice_id;
   delete from public.invoices where id = p_invoice_id;
