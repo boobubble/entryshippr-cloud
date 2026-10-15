@@ -158,7 +158,7 @@ function Shipments() {
       </div>
       <div className="overflow-x-auto rounded-xl border bg-card">
         <table className="w-full text-sm">
-          <thead className="bg-muted text-left"><tr><th className="p-3">AWB</th><th className="p-3">Date</th><th className="p-3">Client</th><th className="p-3">City</th><th className="p-3">Service</th><th className="p-3">Weight</th><th className="p-3 text-right">Amount</th><th className="p-3">Status</th><th /></tr></thead>
+          <thead className="bg-muted text-left"><tr><th className="p-3 w-8"><input type="checkbox" aria-label="Select all" checked={deletable.length > 0 && selRows.length === deletable.length} onChange={(e) => toggleAll(e.target.checked)} /></th><th className="p-3">AWB</th><th className="p-3">Date</th><th className="p-3">Client</th><th className="p-3">City</th><th className="p-3">Service</th><th className="p-3">Weight</th><th className="p-3 text-right">Amount</th><th className="p-3">Status</th><th /></tr></thead>
           <tbody>
             {rows.map((r) => (
               <tr key={r.id} className="border-t"><td className="p-3 font-mono">{r.awb}</td><td className="p-3">{r.ship_date}</td><td className="p-3">{up(r.clients?.name)}</td><td className="p-3">{up(r.destination)}</td><td className="p-3">{r.service}</td><td className="p-3">{r.billing_weight != null && r.weight_unit ? `${+r.billing_weight} ${r.weight_unit}` : `${r.weight} kg`}{r.shipment_type ? ` · ${r.shipment_type}` : ""}</td><td className="p-3 text-right">{r.pricing_status === "needs_review" ? "—" : inr(r.amount)}</td><td className="p-3">{r.pricing_status === "needs_review" ? <span className="text-destructive">Needs review: {r.review_reason}</span> : r.invoice_id ? "Billed" : "Unbilled"}</td>
