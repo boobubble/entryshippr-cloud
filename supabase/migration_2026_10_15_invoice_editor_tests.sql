@@ -225,7 +225,7 @@ set local role authenticated;
 select tie.as_user('00000000-0000-0000-0000-0000000e0aa1');
 select tie.expect_fail($$update public.shipments set invoice_id = draft_invoice_id, draft_invoice_id = null
    where draft_invoice_id = (select id from tie.ids where k = 'dg')$$, 'seller direct hand-over blocked', '{42501,P0001}');
-select tie.ok(coalesce(current_setting('entrysetu.finalizing', true), '') = '', 'finalize flag disarmed after finalize');
+select tie.ok(coalesce(current_setting('entrysetu.finalizing', true), '') = '', 'finalize flag not left armed in this session');
 -- discard (not finalize) so no extra invoice number is consumed and later tests see TIE3 unbilled
 select public.discard_invoice_draft((select id from tie.ids where k = 'dg'));
 select tie.ok((select draft_invoice_id is null and invoice_id is null from public.shipments where awb = 'TIE3'), 'forgery attempts left TIE3 untouched and released');
