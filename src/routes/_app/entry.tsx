@@ -79,9 +79,12 @@ function Entry() {
   const [clientText, setClientText] = useState("");
   const [cityPicked, setCityPicked] = useState<{ name: string; state: string | null } | null>(null);
   const [busy, setBusy] = useState(false);
-  const [pending, setPending] = useState<{ d: Draft; city: CityRes } | null>(null);
+  const [pending, setPendingS] = useState<{ d: Draft; city: CityRes } | null>(null);
+  const pendingRef = useRef(false);
+  const setPending = (v: { d: Draft; city: CityRes } | null) => { pendingRef.current = !!v; setPendingS(v); };
   const [lastCharge, setLastCharge] = useState<string>("");
   const awbRef = useRef<HTMLInputElement>(null);
+  const lock = useRef(false); // set synchronously so repeated Enter/F2/clicks cannot start a second save
   const cityRef = useRef<HTMLInputElement>(null);
 
   // Collapse the desktop sidebar while on this page; restore the earlier state on leave.
@@ -141,22 +144,27 @@ function Entry() {
   }
 
   async function save() {
-    if (busy) return;
+    if (lock.current) return;
     if (!d.awb.trim()) { toast.error("Enter the AWB number"); awbRef.current?.focus(); return; }
     if (!d.client_id) { toast.error("Choose a client from the list"); return; }
     if (!cityPicked) { toast.error("Choose the city from the suggestions"); cityRef.current?.focus(); return; }
     if (!(+d.weight > 0)) { toast.error("Enter a weight above 0"); return; }
-    setBusy(true);
+    lock.current = true; setBusy(true);
     try {
       const res = (await registerCities([d.city])).values().next().value as CityRes | undefined;
       if (!res || res.status === "invalid") { toast.error(res?.reason ?? "Enter a valid city"); return; }
-      if (res.status === "ambiguous" || (res.status === "unmapped" && res.city_id)) { setPending({ d, city: res }); return; }
+      if (res.status === "ambiguous" || (res.status === "unmapped" && res.city_id)) { setPending({ d, city: res }); return; } // lock stays until the popup closes
       await insert(d);
-    } catch (e) { toast.error(errMsg(e)); } finally { setBusy(false); }
+    } catch (e) { toast.error(errMsg(e)); } finally { if (!pendingRef.current) { lock.current = false; } setBusy(false); }
+  }
+
+  async function runLocked(x: Draft) {
+    lock.current = true; setBusy(true);
+    try { await insert(x); } catch (e) { toast.error(errMsg(e)); } finally { lock.current = false; setBusy(false); }
   }
 
   useEffect(() => {
-    const k = (e: KeyboardEvent) => { if (e.key === "F2") { e.preventDefault(); save(); } };
+    const k = (e: KeyboardEvent) => { if (e.key === "F2") { e.preventDefault(); if (!e.repeat) save(); } };
     window.addEventListener("keydown", k);
     return () => window.removeEventListener("keydown", k);
   });
@@ -202,7 +210,7 @@ function Entry() {
             <input id="e-wt" type="number" step="0.001" min="0.001" className={field} value={d.weight} onChange={(e) => setD({ ...d, weight: e.target.value })} /></div>
           <div><label className={label} htmlFor="e-chg">Charges (₹)</label>
             <input id="e-chg" readOnly className={`${field} bg-muted`} value={lastCharge ? `Last: ${lastCharge}` : "Auto"} title="Worked out from the city's zone and the client's rate card"
-              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); save(); } }} /></div>
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); if (!e.repeat) save(); } }} /></div>
           <Button type="submit" disabled={busy} className="h-12 px-8 text-lg font-bold">{busy ? "Saving…" : "Save"}</Button>
         </div>
       </form>
@@ -221,8 +229,8 @@ function Entry() {
       </div>
 
       <CityZoneDialog open={!!pending} items={pending ? [pending.city] : []} zones={zones}
-        onClose={() => { const p = pending; setPending(null); if (p) insert(p.d); }}
-        onSaved={() => { const p = pending; setPending(null); qc.invalidateQueries({ queryKey: ["zones"] }); if (p) insert(p.d); }} />
+        onClose={() => { const p = pending; setPending(null); if (p) runLocked(p.d); else lock.current = false; }}
+        onSaved={() => { const p = pending; setPending(null); qc.invalidateQueries({ queryKey: ["zones"] }); if (p) runLocked(p.d); else lock.current = false; }} />
     </div>
   );
 }
