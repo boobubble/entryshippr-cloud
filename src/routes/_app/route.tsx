@@ -52,7 +52,11 @@ function AppLayout() {
       </aside>
       <div className="flex-1 overflow-x-auto">
         <div className="no-print flex gap-1 overflow-x-auto border-b bg-sidebar p-2 md:hidden">
-          {nav.map((n) => <Link key={n.to} to={n.to} className="whitespace-nowrap rounded px-2 py-1 text-xs text-sidebar-foreground">{n.label}</Link>)}
+          {nav.map((n) => (
+            <Link key={n.to} to={n.to} className="flex items-center gap-1 whitespace-nowrap rounded px-2 py-1 text-xs text-sidebar-foreground" activeProps={{ className: "bg-sidebar-accent font-semibold" }}>
+              <n.icon className="h-3.5 w-3.5" />{n.label}
+            </Link>
+          ))}
         </div>
         {data && !st.active && (
           <div className="no-print flex items-center justify-between gap-4 bg-accent px-6 py-3 text-sm text-accent-foreground">
