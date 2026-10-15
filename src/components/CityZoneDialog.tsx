@@ -81,7 +81,7 @@ export function CityZoneDialog({ open, items, zones, onClose, onSaved }: {
                 {r.status === "ambiguous" ? (
                   <select aria-label={`Which ${r.input}`} className={sel} value={c.city} onChange={(e) => set(r.input, { city: e.target.value })}>
                     <option value="">Which one?</option>
-                    {(r.candidates ?? []).map((k) => <option key={k.id} value={k.id}>{k.name}{k.state ? `, ${k.state}` : " (state unknown)"}</option>)}
+                    {(r.candidates ?? []).map((k) => <option key={k.id} value={k.id}>{k.name}{k.district ? `, ${k.district}` : ""}{k.state ? `, ${k.state}` : " (state unknown)"}</option>)}
                   </select>
                 ) : r.city_id ? <div className="text-xs text-muted-foreground">{r.state ?? "State not set"}</div>
                   : <div className="text-xs text-destructive">{r.reason ?? "Can't be registered"}</div>}

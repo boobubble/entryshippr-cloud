@@ -4,7 +4,7 @@ import { supabase } from "./supabase";
 export const normCity = (s: unknown) => String(s ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 
 export type CityStatus = "mapped" | "unmapped" | "ambiguous" | "invalid";
-export type Candidate = { id: string; name: string; state: string | null };
+export type Candidate = { id: string; name: string; state: string | null; district?: string | null };
 export type CityRes = {
   input: string; status: CityStatus; city_id: string | null; city_name: string | null; state: string | null;
   zone_id: string | null; zone_name: string | null; reason: string | null; candidates: Candidate[] | null;
