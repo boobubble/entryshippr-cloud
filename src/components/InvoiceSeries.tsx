@@ -33,11 +33,7 @@ export function InvoiceSeries() {
   };
   async function save(kind: "gst" | "nongst") {
     const v = get(kind);
-    const exists = rows.some((r) => r.fy === fy && r.kind === kind);
-    const payload = { prefix: v.prefix.trim(), next_number: Number(v.next) };
-    const { error } = exists
-      ? await supabase.from("invoice_series").update(payload).eq("fy", fy).eq("kind", kind)
-      : await supabase.from("invoice_series").insert({ fy, kind, ...payload });
+    const { error } = await supabase.rpc("set_invoice_series", { p_fy: fy, p_kind: kind, p_prefix: v.prefix.trim(), p_next_number: Number(v.next) });
     if (error) { toast.error(errMsg(error)); return; }
     toast.success("Numbering saved");
     qc.invalidateQueries({ queryKey: ["invoice_series"] });

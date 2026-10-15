@@ -24,7 +24,7 @@ export function validateSlabs(slabs: EditSlab[], unit: "g" | "kg"): string[] {
     if (!Number.isFinite(mn) || mn < 0) errs.push(`Slab ${i + 1}: enter a valid "from" weight (0 or more ${unit})`);
     else if (!Number.isFinite(mx)) errs.push(`Slab ${i + 1}: enter a valid "to" weight`);
     else if (mx <= mn) errs.push(`Slab ${i + 1}: "to" must be more than "from"`);
-    for (const [, v] of Object.entries(s.rates)) if (v.trim() !== "" && !(Number(v) >= 0)) { errs.push(`Slab ${i + 1}: rates must be 0 or more`); break; }
+    for (const [, v] of Object.entries(s.rates)) if (v.trim() !== "" && !(Number(v) > 0)) { errs.push(`Slab ${i + 1}: rates must be more than ₹0`); break; }
   });
   const ok = parsed.filter((p) => Number.isFinite(p.mn) && Number.isFinite(p.mx) && p.mx > p.mn).sort((a, b) => a.mn - b.mn);
   for (let k = 1; k < ok.length; k++)
@@ -65,5 +65,7 @@ export function matchRate(
   if (!slab) return { ok: false, reason: `No slab covers ${w} ${unit}` };
   const rate = slab.rates[zone.id];
   if (rate == null || !Number.isFinite(Number(rate))) return { ok: false, reason: `No ${zone.name} rate for ${label(slab)}` };
-  return { ok: true, rate: Number(rate), zone: zone.name, slab: label(slab) };
+  const r = Math.round(Number(rate) * 100) / 100;
+  if (r <= 0) return { ok: false, reason: `${zone.name} rate for ${label(slab)} is ₹0` };
+  return { ok: true, rate: r, zone: zone.name, slab: label(slab) };
 }

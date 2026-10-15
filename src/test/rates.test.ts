@@ -41,7 +41,7 @@ describe("validateSlabs", () => {
     expect(validateSlabs([e("0", "100"), e("50", "200")], "g")[0]).toMatch(/overlap/);
     expect(validateSlabs([e("10", "5")], "g")[0]).toMatch(/more than/);
     expect(validateSlabs([e("", "5")], "g")[0]).toMatch(/valid/);
-    expect(validateSlabs([{ key: "a", min: "0", max: "1", rates: { z: "-3" } }], "kg")[0]).toMatch(/0 or more/);
+    expect(validateSlabs([{ key: "a", min: "0", max: "1", rates: { z: "-3" } }], "kg")[0]).toMatch(/more than/);
   });
   it("normalises service", () => { expect(normService("Express")).toBe("Fast"); expect(normService("")).toBe("Standard"); });
 });
@@ -57,5 +57,13 @@ describe("billedWeight (matches PostgreSQL)", () => {
   });
   it("flags missing card distinctly", () => {
     expect(matchRate([], [], { clientId: null, type: "DOX", service: "Standard", destination: "x", weight: 1 })).toMatchObject({ ok: false, noCard: true });
+  });
+});
+describe("zero rates", () => {
+  it("never prices at ₹0", () => {
+    const z = [{ id: "z", name: "Z", destinations: ["A"], sort_order: 0 }];
+    const sl = [{ client_id: null, shipment_type: "DOX" as const, service: "Standard" as const, min_weight: 0, max_weight: 10, rates: { z: 0 }, sort_order: 0 }];
+    expect(matchRate(sl, z, { clientId: null, type: "DOX", service: "Standard", destination: "a", weight: 5 })).toMatchObject({ ok: false });
+    expect(validateSlabs([{ key: "k", min: "0", max: "1", rates: { z: "0" } }], "g")[0]).toMatch(/more than/);
   });
 });
