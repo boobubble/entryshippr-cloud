@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import {
-  FIELD_LABELS, REQUIRED, billingWeight, colLetter, detectMapping, fmtWeight, parseType, parseWeight, toKg, unitOf,
+  FIELD_LABELS, REQUIRED, billingWeight, colLetter, detectMapping, rowWeights, fmtWeight, parseType, parseWeight, toKg, unitOf,
   type FieldKey, type Mapping, type ShipmentType,
 } from "@/lib/import-weights";
 
@@ -37,6 +37,8 @@ function toISO(v: unknown): string | null {
   const s = String(v ?? "").trim();
   const m = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})$/);
   if (m) { const y = m[3]!.length === 2 ? "20" + m[3] : m[3]; return `${y}-${m[2]!.padStart(2, "0")}-${m[1]!.padStart(2, "0")}`; }
+  // ISO timestamps (e.g. 2026-08-13T20:10:00Z) are booking times in UTC: use the India date.
+  if (/^\d{4}-\d{2}-\d{2}T.*(Z|[+-]\d{2}:?\d{2})$/.test(s) && !isNaN(Date.parse(s))) return new Date(Date.parse(s) + 330 * 60000).toISOString().slice(0, 10);
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
   return null;
 }
@@ -79,7 +81,14 @@ function ImportPage() {
       if (aoa.length < 2) { toast.error("Sheet has no data rows"); return; }
       // header row = first row (within 10) with at least 3 text cells
       const hr = Math.max(0, aoa.slice(0, 10).findIndex((r) => r.filter((c) => typeof c === "string" && c.trim()).length >= 3));
-      setSheet(aoa); setHeaderRow(hr); setMap(detectMapping(aoa[hr] ?? []));
+      const det = detectMapping(aoa[hr] ?? []);
+      setSheet(aoa); setHeaderRow(hr); setMap(det);
+      if (det.format === "1308") {
+        // Recurring 1308 sheets: keep this mapping as a reusable preset.
+        setMapName("1308 format");
+        const { error } = await supabase.from("import_mappings").upsert({ name: "1308 format", mapping: det, updated_at: new Date().toISOString() }, { onConflict: "owner_id,name" });
+        if (!error) { saved.refetch(); toast.success("1308 format recognised — mapping saved as preset \"1308 format\""); }
+      }
       // existing AWBs for this tenant (RLS limits to own rows)
       const awbs = new Set<string>();
       for (let from = 0; ; from += 1000) {
@@ -134,7 +143,7 @@ function ImportPage() {
       const awb = String(get(r, "awb") ?? "").trim();
       const client = String(get(r, "client") ?? "").trim();
       const type = parseType(get(r, "type"));
-      const weights = (["w1", "w2", "w3", "w4"] as FieldKey[]).map((k) => parseWeight(get(r, k)));
+      const weights = rowWeights(map, type, (["w1", "w2", "w3", "w4"] as FieldKey[]).map((k) => get(r, k)));
       const billing = billingWeight(weights);
       const date = map.date == null ? null : toISO(get(r, "date"));
       const amtRaw = get(r, "amount");
@@ -261,7 +270,7 @@ function ImportPage() {
                 <Input type="number" min={1} max={20} className="ml-2 inline-block w-20" value={headerRow + 1} onChange={(e) => { const v = Math.max(0, Math.min(sheet.length - 2, (+e.target.value || 1) - 1)); setHeaderRow(v); }} />
               </label>
               {saved.data && saved.data.length > 0 && (
-                <select className="h-9 rounded-md border bg-background px-2 text-sm" defaultValue="" onChange={(e) => { const s = saved.data!.find((m) => m.id === e.target.value); if (s) { setMap({ ...detectMapping([]), ...s.mapping }); setMapName(s.name); } }}>
+                <select className="h-9 rounded-md border bg-background px-2 text-sm" defaultValue="" onChange={(e) => { const s = saved.data!.find((m) => m.id === e.target.value); if (s) { setMap({ ...detectMapping([]), format: undefined, ...s.mapping }); setMapName(s.name); } }}>
                   <option value="">Load saved mapping…</option>{saved.data.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
                 </select>
               )}
