@@ -32,6 +32,7 @@ function Shipments() {
   const [f, setF] = useState<Form>({ awb: "", client_id: "", ship_date: today, destination: "", service: "Standard", type: "NON-DOX", weight: "", pieces: "1" });
   const [pending, setPending] = useState<{ form: Form; city: CityRes } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const { data: rows = [] } = useQuery({
     queryKey: ["shipments", filter],
