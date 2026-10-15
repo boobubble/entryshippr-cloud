@@ -29,7 +29,7 @@ export function useClientAliases() {
 export function useHasSourceClientName() {
   return useQuery({
     queryKey: ["has_source_client_name"],
-    retry: false, staleTime: Infinity,
+    retry: false, staleTime: 0, refetchOnMount: "always",
     queryFn: async () => {
       const { error } = await supabase.from("shipments").select("source_client_name").limit(1);
       return !error;
@@ -56,7 +56,7 @@ export async function addAlias(rawName: string, clientId: string, existing: Clie
 export function useHasReceiverFields() {
   return useQuery({
     queryKey: ["has_receiver_fields"],
-    retry: false, staleTime: Infinity,
+    retry: false, staleTime: 0, refetchOnMount: "always",
     queryFn: async () => {
       const { error } = await supabase.from("shipments").select("receiver_name, receiver_phone").limit(1);
       return !error;
