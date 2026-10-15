@@ -3,6 +3,7 @@ import { supabase } from "@/lib/supabase";
 import { useProfile, accessState } from "@/lib/hooks";
 import { LayoutDashboard, Users, Gauge, Truck, FileSpreadsheet, Receipt, CreditCard, Settings, Shield, LogOut, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useSidebarCollapsed } from "@/lib/sidebar";
 
 export const Route = createFileRoute("/_app")({
   ssr: false,

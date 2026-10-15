@@ -18,6 +18,7 @@ import { Route as AppBillingRouteImport } from './routes/_app/billing'
 import { Route as AppCitiesRouteImport } from './routes/_app/cities'
 import { Route as AppClientsRouteImport } from './routes/_app/clients'
 import { Route as AppDashboardRouteImport } from './routes/_app/dashboard'
+import { Route as AppEntryRouteImport } from './routes/_app/entry'
 import { Route as AppImportRouteImport } from './routes/_app/import'
 import { Route as AppInvoicesRouteImport } from './routes/_app/invoices'
 import { Route as AppRateCardsRouteImport } from './routes/_app/rate-cards'
@@ -71,6 +72,11 @@ const AppClientsRoute = AppClientsRouteImport.update({
 const AppDashboardRoute = AppDashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppEntryRoute = AppEntryRouteImport.update({
+  id: '/entry',
+  path: '/entry',
   getParentRoute: () => AppRouteRoute,
 } as any)
 const AppImportRoute = AppImportRouteImport.update({
@@ -134,6 +140,7 @@ export interface FileRoutesByFullPath {
   '/cities': typeof AppCitiesRoute
   '/clients': typeof AppClientsRoute
   '/dashboard': typeof AppDashboardRoute
+  '/entry': typeof AppEntryRoute
   '/import': typeof AppImportRoute
   '/invoices': typeof AppInvoicesRouteWithChildren
   '/rate-cards': typeof AppRateCardsRoute
@@ -154,6 +161,7 @@ export interface FileRoutesByTo {
   '/cities': typeof AppCitiesRoute
   '/clients': typeof AppClientsRoute
   '/dashboard': typeof AppDashboardRoute
+  '/entry': typeof AppEntryRoute
   '/import': typeof AppImportRoute
   '/rate-cards': typeof AppRateCardsRoute
   '/settings': typeof AppSettingsRoute
@@ -175,6 +183,7 @@ export interface FileRoutesById {
   '/_app/cities': typeof AppCitiesRoute
   '/_app/clients': typeof AppClientsRoute
   '/_app/dashboard': typeof AppDashboardRoute
+  '/_app/entry': typeof AppEntryRoute
   '/_app/import': typeof AppImportRoute
   '/_app/invoices': typeof AppInvoicesRouteWithChildren
   '/_app/rate-cards': typeof AppRateCardsRoute
@@ -197,6 +206,7 @@ export interface FileRouteTypes {
     | '/cities'
     | '/clients'
     | '/dashboard'
+    | '/entry'
     | '/import'
     | '/invoices'
     | '/rate-cards'
@@ -217,6 +227,7 @@ export interface FileRouteTypes {
     | '/cities'
     | '/clients'
     | '/dashboard'
+    | '/entry'
     | '/import'
     | '/rate-cards'
     | '/settings'
@@ -237,6 +248,7 @@ export interface FileRouteTypes {
     | '/_app/cities'
     | '/_app/clients'
     | '/_app/dashboard'
+    | '/_app/entry'
     | '/_app/import'
     | '/_app/invoices'
     | '/_app/rate-cards'
@@ -321,6 +333,13 @@ declare module '@tanstack/react-router' {
       path: '/dashboard'
       fullPath: '/dashboard'
       preLoaderRoute: typeof AppDashboardRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/_app/entry': {
+      id: '/_app/entry'
+      path: '/entry'
+      fullPath: '/entry'
+      preLoaderRoute: typeof AppEntryRouteImport
       parentRoute: typeof AppRouteRoute
     }
     '/_app/import': {
@@ -418,6 +437,7 @@ interface AppRouteRouteChildren {
   AppCitiesRoute: typeof AppCitiesRoute
   AppClientsRoute: typeof AppClientsRoute
   AppDashboardRoute: typeof AppDashboardRoute
+  AppEntryRoute: typeof AppEntryRoute
   AppImportRoute: typeof AppImportRoute
   AppInvoicesRoute: typeof AppInvoicesRouteWithChildren
   AppRateCardsRoute: typeof AppRateCardsRoute
@@ -431,6 +451,7 @@ const AppRouteRouteChildren: AppRouteRouteChildren = {
   AppCitiesRoute: AppCitiesRoute,
   AppClientsRoute: AppClientsRoute,
   AppDashboardRoute: AppDashboardRoute,
+  AppEntryRoute: AppEntryRoute,
   AppImportRoute: AppImportRoute,
   AppInvoicesRoute: AppInvoicesRouteWithChildren,
   AppRateCardsRoute: AppRateCardsRoute,
