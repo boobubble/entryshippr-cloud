@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -6,18 +6,21 @@ import { supabase } from "@/lib/supabase";
 import { useZones, errMsg } from "@/lib/hooks";
 import { normCity, registerCities } from "@/lib/cities";
 import { CityZoneDialog } from "@/components/CityZoneDialog";
+import { StateSelect } from "@/components/StateSelect";
 import { PageHead, appHead } from "@/components/PageHead";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
 export const Route = createFileRoute("/_app/cities")({
-  head: appHead("Cities & zones", "Assign your zones to cities, fix unmapped cities and review shipments."),
+  head: appHead("City & Zone Master", "Add cities, manage your zones, assign cities to zones and fix shipments waiting for a zone."),
   component: CitiesPage,
 });
 
 const sel = "h-9 rounded-md border bg-background px-2 text-sm";
-type City = { id: string; name: string; state: string | null; source: string };
-type Mapping = { city_id: string; zone_id: string; cities: { name: string; state: string | null } | null };
+type City = { id: string; name: string; state: string | null; district: string | null; source: string };
+type Mapping = { city_id: string; zone_id: string; cities: { name: string; state: string | null; district: string | null } | null };
+const place = (c: { state: string | null; district?: string | null } | null | undefined) =>
+  [c?.district, c?.state].filter(Boolean).join(", ") || "—";
 
 function CitiesPage() {
   const qc = useQueryClient();
@@ -25,13 +28,20 @@ function CitiesPage() {
   const zones = zonesQ.data ?? [];
   const [q, setQ] = useState("");
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [mapPicked, setMapPicked] = useState<Set<string>>(new Set());
   const [bulkZone, setBulkZone] = useState("");
+  const [moveZone, setMoveZone] = useState("");
+  const [zoneFilter, setZoneFilter] = useState("");
   const [dialog, setDialog] = useState(false);
+  const [newZone, setNewZone] = useState("");
+  const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
+  const [nc, setNc] = useState({ name: "", state: "", district: "" });
+  const [busy, setBusy] = useState(false);
 
   const mappings = useQuery({
     queryKey: ["seller_city_zones"], retry: false,
     queryFn: async () => {
-      const { data, error } = await supabase.from("seller_city_zones").select("city_id, zone_id, cities(name, state)");
+      const { data, error } = await supabase.from("seller_city_zones").select("city_id, zone_id, cities(name, state, district)");
       if (error) throw error;
       return (data as unknown as Mapping[]).sort((a, b) => (a.cities?.name ?? "").localeCompare(b.cities?.name ?? ""));
     },
@@ -41,15 +51,18 @@ function CitiesPage() {
     queryFn: async () => {
       const { data, error } = await supabase.from("shipments").select("destination").eq("pricing_status", "needs_review").limit(5000);
       if (error) throw error;
+      const counts = new Map<string, number>();
+      for (const d of data) { const n = normCity(d.destination); if (n) counts.set(n, (counts.get(n) ?? 0) + 1); }
       const names = [...new Set(data.map((d) => (d.destination ?? "").trim()).filter(Boolean))];
       const res = names.length ? await registerCities(names) : new Map();
-      return { count: data.length, unmapped: [...res.values()].filter((r) => (r.status === "unmapped" && r.city_id) || r.status === "ambiguous") };
+      const unmapped = [...res.values()].filter((r) => (r.status === "unmapped" && r.city_id) || r.status === "ambiguous");
+      return { count: data.length, unmapped, counts };
     },
   });
   const search = useQuery({
     queryKey: ["cities", q], retry: false,
     queryFn: async () => {
-      let req = supabase.from("cities").select("id, name, state, source").order("name").limit(100);
+      let req = supabase.from("cities").select("id, name, state, district, source").order("name").limit(100);
       const n = normCity(q);
       if (n) req = req.like("name_norm", `%${n.replace(/[%_]/g, "")}%`);
       const { data, error } = await req;
@@ -57,87 +70,232 @@ function CitiesPage() {
       return data as City[];
     },
   });
+  // duplicate check while typing a new city
+  const dupes = useQuery({
+    queryKey: ["cities_dupe", normCity(nc.name)], retry: false, enabled: normCity(nc.name).length >= 2,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("cities").select("id, name, state, district, source").eq("name_norm", normCity(nc.name)).limit(20);
+      if (error) throw error;
+      return data as City[];
+    },
+  });
 
   const zoneByCity = useMemo(() => new Map((mappings.data ?? []).map((m) => [m.city_id, m.zone_id])), [mappings.data]);
-  const refresh = () => { ["seller_city_zones", "review_cities", "shipments", "zones"].forEach((k) => qc.invalidateQueries({ queryKey: [k] })); };
+  const mapCount = useMemo(() => { const m = new Map<string, number>(); (mappings.data ?? []).forEach((x) => m.set(x.zone_id, (m.get(x.zone_id) ?? 0) + 1)); return m; }, [mappings.data]);
+  const shownMappings = (mappings.data ?? []).filter((m) => !zoneFilter || m.zone_id === zoneFilter);
+  const refresh = () => { ["seller_city_zones", "review_cities", "shipments", "zones", "cities", "cities_dupe"].forEach((k) => qc.invalidateQueries({ queryKey: [k] })); };
+  const zoneName = (id?: string) => zones.find((z) => z.id === id)?.name;
 
   async function assign(cityIds: string[], zoneId: string) {
+    if (!cityIds.length || !zoneId) return false;
     const { error } = await supabase.from("seller_city_zones")
       .upsert(cityIds.map((city_id) => ({ city_id, zone_id: zoneId, updated_at: new Date().toISOString() })), { onConflict: "owner_id,city_id" });
     if (error) { toast.error(errMsg(error)); return false; }
-    toast.success(`Zone set for ${cityIds.length} ${cityIds.length === 1 ? "city" : "cities"}`); refresh(); return true;
+    toast.success(`${cityIds.length} ${cityIds.length === 1 ? "city" : "cities"} set to ${zoneName(zoneId) ?? "zone"}. Waiting shipments were re-priced.`);
+    refresh(); return true;
   }
-  async function unassign(cityId: string) {
-    const { error } = await supabase.from("seller_city_zones").delete().eq("city_id", cityId);
+  async function unassign(cityIds: string[]) {
+    if (!cityIds.length) return;
+    const { error } = await supabase.from("seller_city_zones").delete().in("city_id", cityIds);
     if (error) { toast.error(errMsg(error)); return; }
-    refresh();
+    toast.success(`Removed ${cityIds.length} ${cityIds.length === 1 ? "city" : "cities"} from zones`);
+    setMapPicked(new Set()); refresh();
+  }
+
+  async function createZone() {
+    const name = newZone.trim();
+    if (!name) return;
+    setBusy(true);
+    const { error } = await supabase.from("zones").insert({ name, sort_order: zones.length });
+    setBusy(false);
+    if (error) { toast.error(error.code === "23505" ? "A zone with this name already exists" : errMsg(error)); return; }
+    setNewZone(""); toast.success(`Zone "${name}" created`); refresh();
+  }
+  async function renameZone() {
+    if (!renaming) return;
+    const name = renaming.name.trim();
+    if (!name) return;
+    const { error } = await supabase.from("zones").update({ name }).eq("id", renaming.id);
+    if (error) { toast.error(error.code === "23505" ? "A zone with this name already exists" : errMsg(error)); return; }
+    setRenaming(null); toast.success("Zone renamed"); refresh();
+  }
+  async function deleteZone(id: string, name: string) {
+    const n = mapCount.get(id) ?? 0;
+    if (!confirm(`Delete zone "${name}"?${n ? ` ${n} city assignment(s) will be removed and those cities will need a zone again.` : ""} Rates for this zone in your rate cards will no longer apply.`)) return;
+    const { error } = await supabase.from("zones").delete().eq("id", id);
+    if (error) { toast.error(errMsg(error)); return; }
+    toast.success(`Zone "${name}" deleted`); if (zoneFilter === id) setZoneFilter(""); refresh();
+  }
+
+  async function addCity() {
+    if (normCity(nc.name).length < 2) { toast.error("Enter a city name"); return; }
+    if (!nc.state) { toast.error("Choose the state"); return; }
+    setBusy(true);
+    const { data, error } = await supabase.rpc("add_city", { p_name: nc.name.trim(), p_state: nc.state, p_district: nc.district.trim() || null });
+    setBusy(false);
+    if (error) { toast.error(errMsg(error)); return; }
+    const r = (data as { city_id: string; existed: boolean; name: string; state: string }[])[0];
+    toast.success(r?.existed ? `${r.name}, ${r.state} already exists — using it` : `${r?.name} added to the city list`);
+    setNc({ name: "", state: "", district: "" }); setQ(r?.name ?? ""); refresh();
   }
 
   const notReady = mappings.isError || search.isError;
-  const zoneName = (id?: string) => zones.find((z) => z.id === id)?.name;
+  const toggle = (s: Set<string>, id: string, on: boolean) => { const n = new Set(s); if (on) n.add(id); else n.delete(id); return n; };
 
   return (
     <div className="space-y-6">
-      <PageHead title="Cities & zones" />
+      <PageHead title="City & Zone Master" />
       {notReady && <p className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">City management isn't available yet. Run the cities database update in Supabase, then reload.</p>}
-      {!zones.length && !zonesQ.isLoading && <p className="text-sm">You have no zones yet. Create them on the <Link to="/rate-cards" className="text-primary underline">Rate cards</Link> page.</p>}
 
+      {/* Needs review */}
       <section className="rounded-xl border bg-card p-4">
         <div className="flex flex-wrap items-center gap-3">
-          <h2 className="mr-auto font-semibold">Needs review</h2>
-          <span className="text-sm text-muted-foreground">{review.data?.count ?? 0} shipments waiting · {review.data?.unmapped.length ?? 0} cities without your zone</span>
-          <Button disabled={!review.data?.unmapped.length} onClick={() => setDialog(true)}>Assign zones</Button>
+          <h2 className="mr-auto font-semibold">Cities needing a zone</h2>
+          <span className="text-sm text-muted-foreground">{review.data?.count ?? 0} shipments waiting · {review.data?.unmapped.length ?? 0} cities</span>
+          <Button disabled={!review.data?.unmapped.length || !zones.length} onClick={() => setDialog(true)}>Assign zones</Button>
         </div>
-        <p className="mt-2 text-sm text-muted-foreground">Shipments are re-priced automatically as soon as their city gets a zone.</p>
+        {!!review.data?.unmapped.length && (
+          <ul className="mt-3 flex flex-wrap gap-2">
+            {review.data.unmapped.slice(0, 60).map((r) => (
+              <li key={r.input} className="rounded-full border px-3 py-1 text-xs">
+                {r.input}{r.status === "ambiguous" && <span className="text-destructive"> · confirm state</span>}
+                <span className="text-muted-foreground"> · {review.data.counts.get(normCity(r.input)) ?? 0} shipments</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="mt-2 text-sm text-muted-foreground">Shipments are re-priced automatically as soon as their city gets a zone. Names that match cities in more than one state need you to confirm which one.</p>
       </section>
 
+      <div className="grid gap-6 lg:grid-cols-2">
+        {/* Zones */}
+        <section className="rounded-xl border bg-card p-4">
+          <h2 className="mb-3 font-semibold">My zones ({zones.length})</h2>
+          <form className="mb-3 flex gap-2" onSubmit={(e) => { e.preventDefault(); createZone(); }}>
+            <Input placeholder="New zone name, e.g. West" value={newZone} maxLength={60} onChange={(e) => setNewZone(e.target.value)} />
+            <Button type="submit" disabled={busy || !newZone.trim()}>Create</Button>
+          </form>
+          <ul className="divide-y">
+            {zones.map((z) => (
+              <li key={z.id} className="flex flex-wrap items-center gap-2 py-2">
+                {renaming?.id === z.id ? (
+                  <form className="flex flex-1 gap-2" onSubmit={(e) => { e.preventDefault(); renameZone(); }}>
+                    <Input autoFocus value={renaming.name} maxLength={60} onChange={(e) => setRenaming({ id: z.id, name: e.target.value })} />
+                    <Button type="submit" size="sm">Save</Button>
+                    <Button type="button" size="sm" variant="ghost" onClick={() => setRenaming(null)}>Cancel</Button>
+                  </form>
+                ) : (
+                  <>
+                    <button type="button" className="mr-auto text-left text-sm font-medium hover:underline" onClick={() => setZoneFilter(zoneFilter === z.id ? "" : z.id)}>
+                      {z.name} <span className="font-normal text-muted-foreground">· {mapCount.get(z.id) ?? 0} cities</span>
+                    </button>
+                    <Button size="sm" variant="ghost" onClick={() => setRenaming({ id: z.id, name: z.name })}>Rename</Button>
+                    <Button size="sm" variant="ghost" className="text-destructive" onClick={() => deleteZone(z.id, z.name)}>Delete</Button>
+                  </>
+                )}
+              </li>
+            ))}
+            {!zones.length && !zonesQ.isLoading && <li className="py-3 text-sm text-muted-foreground">No zones yet. Create your first zone above.</li>}
+          </ul>
+        </section>
+
+        {/* Add city */}
+        <section className="rounded-xl border bg-card p-4">
+          <h2 className="mb-3 font-semibold">Add a city</h2>
+          <form className="grid gap-2 sm:grid-cols-2" onSubmit={(e) => { e.preventDefault(); addCity(); }}>
+            <Input placeholder="City name" value={nc.name} maxLength={80} onChange={(e) => setNc({ ...nc, name: e.target.value })} />
+            <StateSelect value={nc.state} onChange={(state) => setNc({ ...nc, state })} />
+            <Input placeholder="District (optional)" value={nc.district} maxLength={60} onChange={(e) => setNc({ ...nc, district: e.target.value })} />
+            <Button type="submit" disabled={busy}>Add city</Button>
+          </form>
+          {!!dupes.data?.length && (
+            <div className="mt-3 rounded-lg border bg-muted/40 p-2 text-sm">
+              <p className="mb-1 font-medium">Already in the city list:</p>
+              <ul className="space-y-1">
+                {dupes.data.map((c) => (
+                  <li key={c.id} className="flex flex-wrap items-center gap-2">
+                    <span className="mr-auto">{c.name} <span className="text-muted-foreground">({place(c)})</span>{zoneByCity.has(c.id) && <span className="text-muted-foreground"> · {zoneName(zoneByCity.get(c.id))}</span>}</span>
+                    {!zoneByCity.has(c.id) && zones.length > 0 && (
+                      <select aria-label={`Zone for ${c.name}`} className={sel} defaultValue="" onChange={(e) => e.target.value && assign([c.id], e.target.value)}>
+                        <option value="">Assign zone…</option>{zones.map((z) => <option key={z.id} value={z.id}>{z.name}</option>)}
+                      </select>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-1 text-xs text-muted-foreground">Only add it if your city is in a different state or district.</p>
+            </div>
+          )}
+          <p className="mt-2 text-xs text-muted-foreground">Cities are shared by everyone using EntrySetu once checked. Your zones and assignments stay private to you.</p>
+        </section>
+      </div>
+
+      {/* Assignments */}
       <section className="rounded-xl border bg-card p-4">
-        <h2 className="mb-3 font-semibold">My city zones ({mappings.data?.length ?? 0})</h2>
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <h2 className="mr-auto font-semibold">My city assignments ({shownMappings.length})</h2>
+          <select aria-label="Filter by zone" className={sel} value={zoneFilter} onChange={(e) => setZoneFilter(e.target.value)}>
+            <option value="">All zones</option>{zones.map((z) => <option key={z.id} value={z.id}>{z.name}</option>)}
+          </select>
+          <select aria-label="Move selected to zone" className={sel} value={moveZone} onChange={(e) => setMoveZone(e.target.value)}>
+            <option value="">Move selected to…</option>{zones.map((z) => <option key={z.id} value={z.id}>{z.name}</option>)}
+          </select>
+          <Button size="sm" disabled={!mapPicked.size || !moveZone} onClick={async () => { if (await assign([...mapPicked], moveZone)) setMapPicked(new Set()); }}>Move {mapPicked.size || ""}</Button>
+          <Button size="sm" variant="outline" disabled={!mapPicked.size} onClick={() => unassign([...mapPicked])}>Remove {mapPicked.size || ""}</Button>
+        </div>
         <div className="max-h-96 overflow-auto">
-          <table className="w-full text-sm">
-            <thead className="sticky top-0 bg-muted text-left"><tr><th className="p-2">City</th><th className="p-2">State</th><th className="p-2">Zone</th><th /></tr></thead>
+          <table className="w-full min-w-[480px] text-sm">
+            <thead className="sticky top-0 bg-muted text-left"><tr>
+              <th className="w-8 p-2"><input type="checkbox" aria-label="Select all" checked={!!shownMappings.length && shownMappings.every((m) => mapPicked.has(m.city_id))}
+                onChange={(e) => setMapPicked(e.target.checked ? new Set(shownMappings.map((m) => m.city_id)) : new Set())} /></th>
+              <th className="p-2">City</th><th className="p-2">District / State</th><th className="p-2">Zone</th><th /></tr></thead>
             <tbody>
-              {(mappings.data ?? []).map((m) => (
+              {shownMappings.map((m) => (
                 <tr key={m.city_id} className="border-t">
-                  <td className="p-2">{m.cities?.name}</td><td className="p-2 text-muted-foreground">{m.cities?.state ?? "—"}</td>
+                  <td className="p-2"><input type="checkbox" aria-label={`Select ${m.cities?.name}`} checked={mapPicked.has(m.city_id)} onChange={(e) => setMapPicked(toggle(mapPicked, m.city_id, e.target.checked))} /></td>
+                  <td className="p-2">{m.cities?.name}</td><td className="p-2 text-muted-foreground">{place(m.cities)}</td>
                   <td className="p-2"><select aria-label={`Zone for ${m.cities?.name}`} className={sel} value={m.zone_id} onChange={(e) => assign([m.city_id], e.target.value)}>
                     {zones.map((z) => <option key={z.id} value={z.id}>{z.name}</option>)}
                   </select></td>
-                  <td className="p-2 text-right"><Button size="sm" variant="ghost" onClick={() => unassign(m.city_id)}>Remove</Button></td>
+                  <td className="p-2 text-right"><Button size="sm" variant="ghost" onClick={() => unassign([m.city_id])}>Remove</Button></td>
                 </tr>
               ))}
-              {!mappings.data?.length && <tr><td colSpan={4} className="p-4 text-center text-muted-foreground">No cities assigned yet.</td></tr>}
+              {!shownMappings.length && <tr><td colSpan={5} className="p-4 text-center text-muted-foreground">No cities assigned yet.</td></tr>}
             </tbody>
           </table>
         </div>
       </section>
 
+      {/* All cities */}
       <section className="rounded-xl border bg-card p-4">
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <h2 className="mr-auto font-semibold">All cities</h2>
-          <Input placeholder="Search city" className="w-52" value={q} onChange={(e) => setQ(e.target.value)} />
-          <select className={sel} value={bulkZone} onChange={(e) => setBulkZone(e.target.value)}>
+          <Input placeholder="Search city" className="w-full sm:w-52" value={q} onChange={(e) => setQ(e.target.value)} />
+          <select aria-label="Zone for selected" className={sel} value={bulkZone} onChange={(e) => setBulkZone(e.target.value)}>
             <option value="">Zone for selected…</option>{zones.map((z) => <option key={z.id} value={z.id}>{z.name}</option>)}
           </select>
-          <Button disabled={!picked.size || !bulkZone} onClick={async () => { if (await assign([...picked], bulkZone)) setPicked(new Set()); }}>Assign {picked.size || ""}</Button>
+          <Button size="sm" disabled={!picked.size || !bulkZone} onClick={async () => { if (await assign([...picked], bulkZone)) setPicked(new Set()); }}>Assign {picked.size || ""}</Button>
         </div>
-        <p className="mb-2 text-xs text-muted-foreground">Cities are shared by everyone using EntrySetu. Zones are yours only. New cities are added automatically from your shipments and the reviewed city list.</p>
         <div className="max-h-[480px] overflow-auto">
-          <table className="w-full text-sm">
-            <thead className="sticky top-0 bg-muted text-left"><tr><th className="p-2 w-8" /><th className="p-2">City</th><th className="p-2">State</th><th className="p-2">My zone</th></tr></thead>
+          <table className="w-full min-w-[480px] text-sm">
+            <thead className="sticky top-0 bg-muted text-left"><tr>
+              <th className="w-8 p-2"><input type="checkbox" aria-label="Select all shown" checked={!!search.data?.length && search.data.every((c) => picked.has(c.id))}
+                onChange={(e) => setPicked(e.target.checked ? new Set((search.data ?? []).map((c) => c.id)) : new Set())} /></th>
+              <th className="p-2">City</th><th className="p-2">District / State</th><th className="p-2">My zone</th></tr></thead>
             <tbody>
               {(search.data ?? []).map((c) => (
                 <tr key={c.id} className="border-t">
-                  <td className="p-2"><input type="checkbox" aria-label={`Select ${c.name}`} checked={picked.has(c.id)} onChange={(e) => { const s = new Set(picked); if (e.target.checked) s.add(c.id); else s.delete(c.id); setPicked(s); }} /></td>
-                  <td className="p-2">{c.name}{c.source === "user" && <span className="ml-2 text-xs text-muted-foreground">(added from shipments)</span>}</td>
-                  <td className="p-2 text-muted-foreground">{c.state ?? "—"}</td>
+                  <td className="p-2"><input type="checkbox" aria-label={`Select ${c.name}`} checked={picked.has(c.id)} onChange={(e) => setPicked(toggle(picked, c.id, e.target.checked))} /></td>
+                  <td className="p-2">{c.name}{c.source === "user" && <span className="ml-2 text-xs text-muted-foreground">(added by sellers)</span>}</td>
+                  <td className="p-2 text-muted-foreground">{place(c)}</td>
                   <td className="p-2">{zoneName(zoneByCity.get(c.id)) ?? <span className="text-muted-foreground">Not set</span>}</td>
                 </tr>
               ))}
-              {!search.data?.length && <tr><td colSpan={4} className="p-4 text-center text-muted-foreground">No cities found.</td></tr>}
+              {!search.data?.length && <tr><td colSpan={4} className="p-4 text-center text-muted-foreground">No cities found. Add it above.</td></tr>}
             </tbody>
           </table>
         </div>
+        <p className="mt-2 text-xs text-muted-foreground">Showing up to 100 cities — search to narrow down.</p>
       </section>
 
       <CityZoneDialog open={dialog} items={review.data?.unmapped ?? []} zones={zones} onClose={() => setDialog(false)} onSaved={() => { setDialog(false); refresh(); }} />
