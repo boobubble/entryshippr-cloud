@@ -129,7 +129,7 @@ select tie.expect_fail($$select public.create_invoice_draft((select a_in from ti
 -- but may still choose Non-GST. Non-GST never carries tax.
 select tie.as_user('00000000-0000-0000-0000-0000000e0bb1');
 insert into tie.ids select 'df', public.create_invoice_draft((select b_c from tie.c), current_date - 30, current_date, null, current_date, 'gst');
-select tie.ok((select kind = 'gst' and tax_mode = 'inter' and igst > 0 from public.invoices where id = (select id from tie.ids where k = 'df')), 'seller without GSTIN can create GST draft');
+select tie.ok((select kind = 'gst' and tax_mode = 'intra' and cgst = 8.10 and sgst = 8.10 and total = 106.20 from public.invoices where id = (select id from tie.ids where k = 'df')), 'seller without GSTIN can create GST draft');
 select public.discard_invoice_draft((select id from tie.ids where k = 'df'));
 select tie.as_user('00000000-0000-0000-0000-0000000e0aa1');
 
