@@ -1,7 +1,7 @@
 // Pure helpers for the Excel shipment importer (no React / Supabase here, so they are unit-testable).
 
 export type ShipmentType = "DOX" | "NON-DOX";
-export type FieldKey = "awb" | "date" | "client" | "type" | "destination" | "service" | "pieces" | "amount" | "w1" | "w2" | "w3" | "w4";
+export type FieldKey = "awb" | "date" | "client" | "type" | "destination" | "service" | "pieces" | "amount" | "w1" | "w2" | "w3" | "w4" | "receiver" | "receiver_phone";
 export type Mapping = Record<FieldKey, number | null> & {
   /** "1308": weight + auditedWeight are grams for every row; NON-DOX rows convert them to kg. */
   format?: "1308" | undefined;
@@ -11,6 +11,7 @@ export const FIELD_LABELS: Record<FieldKey, string> = {
   awb: "AWB / tracking no.", date: "Shipment date", client: "Client", type: "Shipment type (DOX / NON-DOX)",
   destination: "Destination", service: "Service", pieces: "Pieces", amount: "Sheet amount (compare only)",
   w1: "Weight 1 (col F)", w2: "Weight 2 (col G)", w3: "Weight 3 (col H)", w4: "Weight 4 (col T)",
+  receiver: "Receiver name", receiver_phone: "Receiver number",
 };
 export const REQUIRED: FieldKey[] = ["awb", "client"];
 
@@ -22,6 +23,8 @@ const SYNONYMS: Partial<Record<FieldKey, string[]>> = {
   destination: ["receivercity", "receiver city", "destination", "dest", "city", "to", "dest city", "destination city"],
   service: ["deliverypromise", "delivery promise", "service", "mode", "product", "service type"],
   pieces: ["pieces", "pcs", "qty", "no of pcs", "nop"],
+  receiver: ["receivername", "receiver name", "receiver", "consignee", "consignee name"],
+  receiver_phone: ["receiverphone", "receiver phone", "receiver number", "receiver mobile", "receiver no", "consignee phone", "consignee mobile"],
   amount: ["amount", "charge", "freight", "rate", "total"],
 };
 
@@ -43,13 +46,14 @@ export function detectMapping(headers: unknown[]): Mapping {
     return {
       awb: find("awb"), date: find("date"), client: find("client"), type: find("type"), destination: find("destination"),
       service: find("service"), pieces: null, amount: null,
-      w1: at("weight"), w2: at("volumetricweight"), w3: at("auditedweight"), w4: at("totalweight"), format: "1308",
+      w1: at("weight"), w2: at("volumetricweight"), w3: at("auditedweight"), w4: at("totalweight"), receiver: find("receiver"), receiver_phone: find("receiver_phone"), format: "1308",
     };
   }
   return {
     awb: find("awb"), date: find("date"), client: find("client"), type: find("type"), destination: find("destination"),
     service: find("service"), pieces: find("pieces"), amount: find("amount"),
     w1: has(5) ? 5 : null, w2: has(6) ? 6 : null, w3: has(7) ? 7 : null, w4: has(19) ? 19 : null,
+    receiver: find("receiver"), receiver_phone: find("receiver_phone"),
   };
 }
 
