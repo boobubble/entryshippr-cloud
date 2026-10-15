@@ -34,6 +34,8 @@ begin
   perform set_config('request.jwt.claim.sub', uid::text, true);
 end $$;
 grant execute on all functions in schema t15 to authenticated;
+create table t15.inv (k text primary key, id uuid not null);
+grant select, insert on t15.inv to authenticated;
 
 -- =====================================================================
 -- A. Privilege catalogue checks (run as postgres)
@@ -276,18 +278,18 @@ select t15.expect_fail($$select public.set_invoice_series((select fy from t15.b)
 select t15.expect_fail($$select public.set_invoice_series((select fy from t15.b), 'gst', 'bad prefix!', 9)$$, 'invalid prefix rejected', '{P0001}');
 
 insert into public.shipments (client_id, awb, weight, amount) select gst, 'B-S1', 1, 100 from t15.b;
-create temp table inv1 on commit drop as select public.create_invoice((select gst from t15.b), current_date - 30, current_date) id;
+insert into t15.inv select 'inv1', public.create_invoice((select gst from t15.b), current_date - 30, current_date);
 select t15.ok((select seq = 5 and invoice_no = 'INV/' || fy || '/0005' and cgst = 9 and sgst = 9 and igst = 0 and total = 118
-               from public.invoices where id = (select id from inv1)), 'first GST invoice uses configured start 5, CGST+SGST');
+               from public.invoices where id = (select id from t15.inv where k = 'inv1')), 'first GST invoice uses configured start 5, CGST+SGST');
 insert into public.shipments (client_id, awb, weight, amount) select gst, 'B-S2', 1, 200 from t15.b;
-create temp table inv2 on commit drop as select public.create_invoice((select gst from t15.b), current_date - 30, current_date) id;
-select t15.ok((select seq = 6 from public.invoices where id = (select id from inv2)), 'second invoice in same series = 6 (guard-trigger conflict fixed)');
+insert into t15.inv select 'inv2', public.create_invoice((select gst from t15.b), current_date - 30, current_date);
+select t15.ok((select seq = 6 from public.invoices where id = (select id from t15.inv where k = 'inv2')), 'second invoice in same series = 6 (guard-trigger conflict fixed)');
 insert into public.shipments (client_id, awb, weight, amount) select igst, 'B-S3', 1, 100 from t15.b;
-create temp table inv3 on commit drop as select public.create_invoice((select igst from t15.b), current_date - 30, current_date) id;
-select t15.ok((select seq = 7 and igst = 18 and cgst = 0 from public.invoices where id = (select id from inv3)), 'inter-state invoice = 7 with IGST');
+insert into t15.inv select 'inv3', public.create_invoice((select igst from t15.b), current_date - 30, current_date);
+select t15.ok((select seq = 7 and igst = 18 and cgst = 0 from public.invoices where id = (select id from t15.inv where k = 'inv3')), 'inter-state invoice = 7 with IGST');
 insert into public.shipments (client_id, awb, weight, amount) select ng, 'B-S4', 1, 50 from t15.b;
-create temp table inv4 on commit drop as select public.create_invoice((select ng from t15.b), current_date - 30, current_date) id;
-select t15.ok((select invoice_no = 'BOS/' || fy || '/0001' and total = 50 and cgst + sgst + igst = 0 from public.invoices where id = (select id from inv4)),
+insert into t15.inv select 'inv4', public.create_invoice((select ng from t15.b), current_date - 30, current_date);
+select t15.ok((select invoice_no = 'BOS/' || fy || '/0001' and total = 50 and cgst + sgst + igst = 0 from public.invoices where id = (select id from t15.inv where k = 'inv4')),
   'Non-GST has its own series starting at 1, no tax');
 select t15.expect_fail($$select public.set_invoice_series((select fy from t15.b), 'gst', 'INV', 7)$$, 'cannot reuse used numbers', '{P0001}', '%backwards%');
 select t15.expect_fail($$select public.create_invoice((select gst from t15.b), current_date - 30, current_date)$$, 'no unbilled shipments -> no number reserved', '{P0001}', '%No unbilled%');
@@ -299,12 +301,12 @@ select t15.ok((select amount = 100 from public.shipments where awb = 'B-S1'), 'b
 select t15.expect_fail($$update public.invoices set total = 0$$, 'invoice not editable', '{42501}');
 select t15.expect_fail($$delete from public.invoices$$, 'invoice not deletable', '{42501}');
 
-select public.cancel_invoice((select id from inv2), 'test');
-select t15.ok((select status = 'cancelled' from public.invoices where id = (select id from inv2))
+select public.cancel_invoice((select id from t15.inv where k = 'inv2'), 'test');
+select t15.ok((select status = 'cancelled' from public.invoices where id = (select id from t15.inv where k = 'inv2'))
           and (select invoice_id is null from public.shipments where awb = 'B-S2'), 'cancel frees shipments');
-select t15.expect_fail($$select public.cancel_invoice((select id from inv2))$$, 'cannot cancel twice', '{P0001}', '%already cancelled%');
-create temp table inv5 on commit drop as select public.create_invoice((select gst from t15.b), current_date - 30, current_date) id;
-select t15.ok((select seq = 8 from public.invoices where id = (select id from inv5)), 're-billing after cancel takes 8; 6 never reused');
+select t15.expect_fail($$select public.cancel_invoice((select id from t15.inv where k = 'inv2'))$$, 'cannot cancel twice', '{P0001}', '%already cancelled%');
+insert into t15.inv select 'inv5', public.create_invoice((select gst from t15.b), current_date - 30, current_date);
+select t15.ok((select seq = 8 from public.invoices where id = (select id from t15.inv where k = 'inv5')), 're-billing after cancel takes 8; 6 never reused');
 
 -- =====================================================================
 -- G. Empty search_path: signup, service_role, payment activation, webhook, admin
@@ -376,16 +378,15 @@ select t15.ok((select count(*) from public.invoices) = 0 and (select count(*) fr
           and (select count(*) from public.payments where owner_id <> auth.uid()) = 0
           and (select count(*) from public.clients) = 1 and (select count(*) from public.zones) = 1, 'C sees only own rows');
 select t15.expect_fail($$select public.create_invoice((select gst from t15.b), current_date - 30, current_date)$$, 'C cannot invoice B''s client', '{P0001}', 'Client not found');
-select t15.expect_fail($$select public.cancel_invoice((select id from inv1))$$, 'C cannot cancel B''s invoice', '{P0001}', '%not found%');
+select t15.expect_fail($$select public.cancel_invoice((select id from t15.inv where k = 'inv1'))$$, 'C cannot cancel B''s invoice', '{P0001}', '%not found%');
 select public.set_invoice_series((select fy from t15.b), 'gst', 'C', 100);
 select t15.expect_fail($$select public.save_rate_card((select c1 from t15.c), 'DOX', 'Fast', jsonb_build_array(jsonb_build_object('min_weight',0,'max_weight',1,'rates',jsonb_build_object((select zl from t15.ids),5))))$$,
   'C cannot use A''s zone', '{P0001}', '%Unknown zone%');
 select t15.expect_fail($$insert into public.shipments (client_id, awb, weight, amount) select gst, 'C-X', 1, 1 from t15.b$$, 'C cannot use B''s client', '{23503,42501}');
-update public.invoice_series set next_number = 1;   -- no privilege path: expect_fail above already proved 42501; here just ensure nothing leaks
 reset role;
 select t15.ok((select next_number = 9 and prefix = 'INV' from public.invoice_series
                where owner_id = '00000000-0000-0000-0000-0000000000b1' and kind = 'gst'), 'B''s series untouched by C');
-select t15.ok((select status = 'issued' from public.invoices where id = (select id from inv1)), 'B''s invoice untouched by C');
+select t15.ok((select status = 'issued' from public.invoices where id = (select id from t15.inv where k = 'inv1')), 'B''s invoice untouched by C');
 
 do $$ begin raise notice 'ALL TESTS PASSED'; end $$;
 rollback;
