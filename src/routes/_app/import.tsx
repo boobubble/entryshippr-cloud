@@ -123,7 +123,7 @@ function ImportPage() {
         if (res.ok) row.priced = { rate: res.rate, zone: res.zone, slab: res.slab };
         else {
           const legacy = res.noCard ? calcAmount(cards, clientId ?? "", row.service, toKg(type!, billedWeight(type!, billing!))) : null;
-          if (legacy != null) row.priced = { rate: legacy, zone: null, slab: "older kg slab" };
+          if (legacy != null && legacy > 0) row.priced = { rate: legacy, zone: null, slab: "older kg slab" };
           else row.review = res.reason;
         }
       }
