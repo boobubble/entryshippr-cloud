@@ -109,14 +109,14 @@ export function InvoiceDocument({ seller, invoice: inv, shipments }: InvoiceDocu
         </thead>
         <tbody>
           {shipments.map((s) => (
-            <tr key={s.id} className="border-b align-top">
-              <td>{invDate(s.ship_date)}</td>
-              <td className="font-mono">{s.awb}</td>
-              <td>{receiverOf(s)}{s.receiver_phone?.trim() && <span className="mt-1 block text-xs">Ph: {s.receiver_phone.trim()}</span>}</td>
-              <td>{up(s.destination)}</td>
-              <td>{s.service}</td>
-              <td>{s.billing_weight != null && s.weight_unit ? `${+s.billing_weight} ${s.weight_unit}` : `${s.weight} kg`}{s.shipment_type && <span className="mt-1 block text-xs">{s.shipment_type}</span>}</td>
-              <td className="text-right tabular-nums">{inr(Number(s.amount))}</td>
+            <tr key={s.id} className="border-b align-middle">
+              <td className="whitespace-nowrap">{invDate(s.ship_date)}</td>
+              <td className="whitespace-nowrap font-mono">{s.awb}</td>
+              <td className="invoice-receiver-cell whitespace-nowrap" title={receiverOf(s)}>{receiverOf(s)}</td>
+              <td className="whitespace-nowrap">{up(s.destination)}</td>
+              <td className="whitespace-nowrap">{s.service}</td>
+              <td className="whitespace-nowrap">{s.billing_weight != null && s.weight_unit ? `${+s.billing_weight} ${s.weight_unit}` : `${s.weight} kg`}{s.shipment_type ? ` ${s.shipment_type}` : ""}</td>
+              <td className="whitespace-nowrap text-right tabular-nums">{inr(Number(s.amount))}</td>
             </tr>
           ))}
         </tbody>
