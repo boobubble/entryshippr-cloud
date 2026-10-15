@@ -124,10 +124,14 @@ select tie.expect_fail($$select public.discard_invoice_draft((select id from tie
 select tie.expect_fail($$select public.create_invoice_draft((select b_c from tie.c), current_date - 30, current_date, array[(select s4 from tie.c)])$$, 'B cannot reserve A shipment', '{P0001}', '%not available%');
 select tie.expect_fail($$select public.create_invoice_draft((select a_in from tie.c), current_date - 30, current_date)$$, 'B cannot bill A client', '{P0001}', 'Client not found%');
 
--- F. Tax rules cannot be bypassed
-select tie.expect_fail($$select public.create_invoice_draft((select b_c from tie.c), current_date - 30, current_date, null, current_date, 'gst')$$, 'no GSTIN -> no GST invoice', '{P0001}', '%GSTIN%');
+-- F. Invoice type is the seller's choice (GSTIN-based locking NOT enforced yet)
+-- Seller B has no GSTIN but may still create a GST draft; seller A has a GSTIN
+-- but may still choose Non-GST. Non-GST never carries tax.
+select tie.as_user('00000000-0000-0000-0000-0000000e0bb1');
+insert into tie.ids select 'df', public.create_invoice_draft((select b_c from tie.c), current_date - 30, current_date, null, current_date, 'gst');
+select tie.ok((select kind = 'gst' and tax_mode = 'intra' and cgst = 8.10 and sgst = 8.10 and total = 106.20 from public.invoices where id = (select id from tie.ids where k = 'df')), 'seller without GSTIN can create GST draft');
+select public.discard_invoice_draft((select id from tie.ids where k = 'df'));
 select tie.as_user('00000000-0000-0000-0000-0000000e0aa1');
-select tie.expect_fail($$select public.create_invoice_draft((select a_out from tie.c), current_date - 30, current_date, null, current_date, 'nongst')$$, 'GSTIN -> Non-GST blocked', '{P0001}', '%must be a GST invoice%');
 
 -- G. Edit lines + charges; DB recalculates; shipments and rate cards untouched
 -- Lines: TIE1 amount 100 -> 150 (weight 1 -> 1.5, declared 10000), TIE2 unchanged, TIE3 removed.
@@ -167,8 +171,21 @@ select tie.expect_fail($$select public.save_invoice_draft((select id from tie.id
   jsonb_build_array(jsonb_build_object('shipment_id', (select s1 from tie.c), 'weight', 1, 'rate', 1, 'amount', 1)), '[]')$$, 'round-off over ₹0.99', '{23514}');
 select tie.expect_fail($$select public.save_invoice_draft((select id from tie.ids where k = 'd1'), '{}',
   jsonb_build_array(jsonb_build_object('shipment_id', (select s4 from tie.c), 'weight', 1, 'rate', 1, 'amount', 1)), '[]')$$, 'cannot add other client shipment', '{P0001}', '%not available%');
-select tie.expect_fail($$select public.save_invoice_draft((select id from tie.ids where k = 'd1'), '{"kind":"nongst"}',
-  jsonb_build_array(jsonb_build_object('shipment_id', (select s1 from tie.c), 'weight', 1, 'rate', 1, 'amount', 1)), '[]')$$, 'switch to Non-GST blocked', '{P0001}', '%must be a GST invoice%');
+-- Switching a GST-registered seller's draft to Non-GST is allowed (locking not
+-- enforced yet) and drops the tax; switching back restores it.
+select public.save_invoice_draft((select id from tie.ids where k = 'd1'), '{"kind":"nongst"}',
+  (select jsonb_agg(jsonb_build_object('shipment_id', shipment_id, 'weight', weight, 'rate', rate, 'amount', amount, 'declared_value', declared_value))
+     from public.invoice_lines where invoice_id = (select id from tie.ids where k = 'd1')),
+  (select jsonb_agg(jsonb_build_object('code', code, 'label', label, 'mode', mode, 'base', base, 'value', value))
+     from public.invoice_charges where invoice_id = (select id from tie.ids where k = 'd1')));
+select tie.ok((select kind = 'nongst' and tax_mode = 'none' and cgst = 0 and sgst = 0 and igst = 0 and total = 484.70
+               from public.invoices where id = (select id from tie.ids where k = 'd1')), 'GSTIN seller can switch to Non-GST, tax removed');
+select public.save_invoice_draft((select id from tie.ids where k = 'd1'), '{"kind":"gst"}',
+  (select jsonb_agg(jsonb_build_object('shipment_id', shipment_id, 'weight', weight, 'rate', rate, 'amount', amount, 'declared_value', declared_value))
+     from public.invoice_lines where invoice_id = (select id from tie.ids where k = 'd1')),
+  (select jsonb_agg(jsonb_build_object('code', code, 'label', label, 'mode', mode, 'base', base, 'value', value))
+     from public.invoice_charges where invoice_id = (select id from tie.ids where k = 'd1')));
+select tie.ok((select kind = 'gst' and total = 572.00 from public.invoices where id = (select id from tie.ids where k = 'd1')), 'switch back to GST restores totals');
 select tie.ok((select total = 572.00 from public.invoices where id = (select id from tie.ids where k = 'd1')), 'failed saves left draft unchanged');
 
 -- I. Finalize with automatic number
