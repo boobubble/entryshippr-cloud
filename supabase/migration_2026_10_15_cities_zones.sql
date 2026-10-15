@@ -263,7 +263,6 @@ begin
     if v_norm is null or v_norm !~ '[a-z]' or char_length(v_norm) not between 2 and 80
        or (v_state is not null and public.gst_state_code(v_state) is null)
        or (v_dist is not null and (char_length(v_dist) not between 2 and 60 or v_dist !~ '[A-Za-z]')) then continue; end if;
-    -- canonical state spelling from the GST table keeps the unique index effective
     v_id := null;
     if v_state is not null and v_dist is null then
       select count(*) into v_same from jsonb_array_elements(p) x where public.norm_city(x->>'name') = v_norm;
@@ -280,7 +279,7 @@ begin
     end if;
     if v_id is null then
       insert into public.cities (name, name_norm, state, district, source)
-      values (public.display_city(e->>'name'), v_norm, v_state, public.display_city(v_dist), 'registry')
+      values (public.display_city(e->>'name'), v_norm, v_state, nullif(public.display_city(v_dist), ''), 'registry')
       on conflict (name_norm, coalesce(lower(state), ''), coalesce(lower(district), '')) do nothing
       returning id into v_id;
       if v_id is not null then v_added := v_added + 1;
@@ -522,6 +521,74 @@ begin
 end $$;
 revoke all on function public.create_invoice(uuid, date, date, date) from public, anon;
 grant execute on function public.create_invoice(uuid, date, date, date) to authenticated, service_role;
+
+-- ---------------------------------------------------------------------
+-- 10b. Database-level invoice guard: a shipment can never be attached to an
+--      invoice while its amount is ₹0 or less (covers every write path).
+--      NOT VALID keeps any historic rows loadable; new/updated rows are checked.
+-- ---------------------------------------------------------------------
+alter table public.shipments drop constraint if exists shipments_invoiced_amount_chk;
+alter table public.shipments add constraint shipments_invoiced_amount_chk
+  check (invoice_id is null or amount > 0) not valid;
+
+-- ---------------------------------------------------------------------
+-- 10c. City & Zone Master: seller adds a city to the shared global master.
+--      Validated (name + official state, optional district), duplicate-safe,
+--      returns the existing row instead of creating a near-duplicate.
+-- ---------------------------------------------------------------------
+create or replace function public.add_city(p_name text, p_state text, p_district text default null)
+returns table (city_id uuid, existed boolean, name text, state text, district text)
+language plpgsql security definer set search_path = '' as $$
+declare v_uid uuid := auth.uid(); v_norm text := public.norm_city(p_name);
+        v_state text := nullif(btrim(p_state), ''); v_dist text := nullif(public.display_city(p_district), '');
+        v_id uuid; v_hits uuid[];
+begin
+  if v_uid is null then raise exception 'Not signed in' using errcode = '42501'; end if;
+  if not public.has_access() then raise exception 'Your trial or plan has expired. Renew to add cities.' using errcode = 'P0001'; end if;
+  if v_norm is null or v_norm !~ '[a-z]' or char_length(v_norm) not between 2 and 80 then
+    raise exception 'Enter a valid city name' using errcode = 'P0001'; end if;
+  if v_state is null or public.gst_state_code(v_state) is null then
+    raise exception 'Choose a valid Indian state' using errcode = 'P0001'; end if;
+  if v_dist is not null and (char_length(v_dist) not between 2 and 60 or v_dist !~ '[A-Za-z]') then
+    raise exception 'Enter a valid district' using errcode = 'P0001'; end if;
+
+  -- exact match (name, state, district)
+  select c.id into v_id from public.cities c
+   where c.name_norm = v_norm and lower(c.state) = lower(v_state)
+     and lower(coalesce(c.district, '')) = lower(coalesce(v_dist, ''));
+  if v_id is null and v_dist is null then
+    -- no district given: reuse the single existing city of that name in that state
+    select array_agg(c.id) into v_hits from public.cities c where c.name_norm = v_norm and lower(c.state) = lower(v_state);
+    if cardinality(v_hits) = 1 then v_id := v_hits[1];
+    elsif cardinality(v_hits) > 1 then
+      raise exception 'Several cities named "%" exist in % — choose the district', public.display_city(p_name), v_state using errcode = 'P0001';
+    end if;
+  end if;
+  if v_id is not null then
+    return query select c.id, true, c.name, c.state, c.district from public.cities c where c.id = v_id; return;
+  end if;
+
+  insert into public.cities (name, name_norm, state, district, source, created_by)
+  values (public.display_city(p_name), v_norm, v_state, v_dist, 'user', v_uid)
+  on conflict (name_norm, coalesce(lower(state), ''), coalesce(lower(district), '')) do nothing
+  returning cities.id into v_id;
+  if v_id is not null then
+    return query select c.id, false, c.name, c.state, c.district from public.cities c where c.id = v_id; return;
+  end if;
+  return query select c.id, true, c.name, c.state, c.district from public.cities c
+   where c.name_norm = v_norm and lower(c.state) = lower(v_state) and lower(coalesce(c.district, '')) = lower(coalesce(v_dist, ''));
+end $$;
+revoke all on function public.add_city(text, text, text) from public, anon;
+grant execute on function public.add_city(text, text, text) to authenticated, service_role;
+
+-- Re-price when mappings are removed too (a moved/removed city must not keep a stale
+-- review reason); priced shipments are never touched, only needs_review ones.
+do $$ declare t text; begin
+  foreach t in array array['seller_city_zones','seller_city_aliases'] loop
+    execute format('drop trigger if exists %I on public.%I', t || '_reprice_del', t);
+    execute format('create trigger %I after delete on public.%I referencing old table as changed for each statement execute function public.reprice_after_change()', t || '_reprice_del', t);
+  end loop;
+end $$;
 
 -- ---------------------------------------------------------------------
 -- 11. Deprecated zones.destinations -> mapping (compatibility + data migration)
