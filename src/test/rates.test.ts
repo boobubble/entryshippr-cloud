@@ -45,3 +45,17 @@ describe("validateSlabs", () => {
   });
   it("normalises service", () => { expect(normService("Express")).toBe("Fast"); expect(normService("")).toBe("Standard"); });
 });
+
+import { billedWeight } from "@/lib/rates";
+describe("billedWeight (matches PostgreSQL)", () => {
+  it("rounds up, never down", () => {
+    expect(billedWeight("DOX", 100.4)).toBe(101);
+    expect(billedWeight("DOX", 100)).toBe(100);
+    expect(billedWeight("NON-DOX", 0.5)).toBe(0.5);
+    expect(billedWeight("NON-DOX", 0.5001)).toBe(0.501);
+    expect(billedWeight("NON-DOX", 0.1 + 0.2)).toBe(0.3);
+  });
+  it("flags missing card distinctly", () => {
+    expect(matchRate([], [], { clientId: null, type: "DOX", service: "Standard", destination: "x", weight: 1 })).toMatchObject({ ok: false, noCard: true });
+  });
+});
