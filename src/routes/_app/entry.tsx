@@ -18,7 +18,7 @@ export const Route = createFileRoute("/_app/entry")({
   component: Entry,
 });
 
-type Opt = { key: string; label: string; sub?: string };
+type Opt = { key: string; label: string; sub?: string | undefined };
 type Saved = { id: string; awb: string; ship_date: string; destination: string | null; service: string; weight: number; amount: number; pricing_status?: string; review_reason?: string | null; shipment_type?: string | null; clients: { name: string } | null };
 type Draft = { awb: string; client_id: string; date: string; city: string; service: "Standard" | "Fast"; type: "DOX" | "NON-DOX"; weight: string };
 
