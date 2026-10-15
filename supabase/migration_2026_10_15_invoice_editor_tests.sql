@@ -191,8 +191,8 @@ select tie.ok((select total = 572.00 from public.invoices where id = (select id 
 
 -- I. Finalize with automatic number
 select public.finalize_invoice((select id from tie.ids where k = 'd1'));
-select tie.ok((select status = 'issued' and seq is not null and fy = (select fy from tie.c)
-               and invoice_no = public.format_invoice_no(s.prefix, s.fy, i.seq, s.fy_format, s.separator, s.pad) and total = 572.00
+select tie.ok((select i.status = 'issued' and i.seq is not null and i.fy = (select fy from tie.c)
+               and i.invoice_no = public.format_invoice_no(s.prefix, s.fy, i.seq, s.fy_format, s.separator, s.pad) and i.total = 572.00
                from public.invoices i join public.invoice_series s on s.owner_id = i.owner_id and s.fy = i.fy and s.kind = i.kind
                where i.id = (select id from tie.ids where k = 'd1')), 'auto number assigned, total kept');
 select tie.ok((select count(*) = 2 from public.shipments where invoice_id = (select id from tie.ids where k = 'd1') and draft_invoice_id is null), 'shipments billed');
