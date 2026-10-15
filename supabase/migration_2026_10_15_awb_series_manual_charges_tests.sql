@@ -2,11 +2,18 @@
 -- EntrySetu V1 — AWB series + Manual charges tests. DEVELOPMENT ONLY (zfvnqcyqxxipjaugkmvf).
 -- Run AFTER migration_2026_10_15_awb_series_manual_charges.sql. One transaction,
 -- ROLLED BACK at the end: no test data kept, no real invoice numbers used.
--- Last notice: "ALL AWB SERIES AND MANUAL CHARGE TESTS PASSED".
+-- Last notice: "ALL AWB SERIES AND MANUAL CHARGE TESTS PASSED (85 assertions)" — raised only if all 85
+-- assertions ran and passed. Everything here is ONE session: duplicate checks are sequential.
+-- Real two-session concurrency: scripts/awb_concurrency_check.py (throwaway local DB only).
 -- =====================================================================
 begin;
 create schema tam;
 grant usage on schema tam to authenticated, service_role;
+-- Every passing assertion is recorded; the final block requires the exact expected count,
+-- so the PASS message can only appear when every assertion ran and succeeded.
+create table tam.log (n serial, label text);
+grant insert, select on tam.log to authenticated, service_role;
+grant usage on sequence tam.log_n_seq to authenticated, service_role;
 create function tam.expect_fail(q text, label text, codes text[], msg_like text default null)
 returns void language plpgsql as $$
 declare v_state text; v_msg text;
@@ -16,12 +23,13 @@ begin
     get stacked diagnostics v_state = returned_sqlstate, v_msg = message_text;
     if not (v_state = any(codes)) then raise exception 'FAIL: % — wrong error % (%), expected %', label, v_state, v_msg, codes; end if;
     if msg_like is not null and v_msg not ilike msg_like then raise exception 'FAIL: % — message "%" not like "%"', label, v_msg, msg_like; end if;
+    insert into tam.log (label) values (label);
     raise notice 'PASS (blocked %) %', v_state, label; return;
   end;
   raise exception 'FAIL: % was allowed', label;
 end $$;
 create function tam.ok(cond boolean, label text) returns void language plpgsql as $$
-begin if cond is true then raise notice 'PASS %', label; else raise exception 'FAIL: % (got %)', label, cond; end if; end $$;
+begin if cond is true then insert into tam.log (label) values (label); raise notice 'PASS %', label; else raise exception 'FAIL: % (got %)', label, cond; end if; end $$;
 create function tam.as_user(uid uuid) returns void language plpgsql as $$
 begin
   perform set_config('request.jwt.claims', json_build_object('sub', uid, 'role', 'authenticated')::text, true);
@@ -89,10 +97,11 @@ select tam.ok((select awb = 'BOS000106' from public.next_awb(null)), 'default se
 insert into public.awb_series (client_id, prefix, start_number, digits) select c2, '', 7, 4 from tam.c;
 select tam.ok((select awb = '0007' and scope = 'client' from public.next_awb((select c2 from tam.c))), 'client series preferred, numeric only');
 select tam.ok((select awb = 'BOS000106' from public.next_awb((select c1 from tam.c))), 'other client keeps default series');
--- manual override + duplicate protection (the unique constraint is what stops concurrent duplicates)
+-- manual override + duplicate protection. NOTE: this is a SEQUENTIAL check inside one session.
+-- Real two-session concurrency is tested separately by scripts/awb_concurrency_check.sh.
 insert into public.shipments (client_id, awb, destination, weight, amount) select c2, 'MY-OWN-1', 'MUMBAI', 1, 50 from tam.c;
 select tam.expect_fail($q$insert into public.shipments (client_id, awb, destination, weight, amount) select c2, '0007', 'MUMBAI', 1, 50 from tam.c; insert into public.shipments (client_id, awb, destination, weight, amount) select c1, '0007', 'MUMBAI', 1, 50 from tam.c$q$,
-  'same AWB twice (second save of a concurrent pair)', array['23505']);
+  'same AWB saved twice (sequential, same session)', array['23505']);
 select tam.ok((select awb = '0007' from public.next_awb((select c2 from tam.c))), 'failed save consumed no number');
 insert into public.shipments (client_id, awb, destination, weight, amount) select c2, '0007', 'MUMBAI', 1, 50 from tam.c;
 select tam.ok((select awb = '0008' from public.next_awb((select c2 from tam.c))), 'suggestion moves only after a successful save');
@@ -105,6 +114,19 @@ select tam.expect_fail($q$insert into public.awb_series (client_id, prefix, star
 update public.awb_series set start_number = 9998, digits = 4 where client_id = (select c2 from tam.c);
 insert into public.shipments (client_id, awb, destination, weight, amount) select c2, '9999', 'MUMBAI', 1, 50 from tam.c;
 select tam.expect_fail($q$select * from public.next_awb((select c2 from tam.c))$q$, 'series used up', array['P0001'], '%used up%');
+-- prefix with / and -, exact digit count, non-numeric tails, 18-digit leading zeros, inactive client series
+update public.awb_series set prefix = 'BOS/26-', start_number = 1, digits = 5 where client_id is null;
+insert into public.shipments (client_id, awb, destination, weight, amount) select c1, x, 'MUMBAI', 1, 50 from tam.c,
+  unnest(array['BOS/26-00041', 'BOS/26-000999', 'BOS/26-0004X', 'BOS/26-ABCDE', 'BOS/2600050', 'bos/26-00077']) x;
+select tam.ok((select awb = 'BOS/26-00042' from public.next_awb((select c1 from tam.c))), 'prefix with / and - matched literally, other lengths/case/tails ignored');
+update public.awb_series set prefix = 'L', start_number = 0, digits = 18 where client_id is null;
+select tam.ok((select awb = 'L000000000000000000' from public.next_awb(null)), '18 digits keep every leading zero');
+insert into public.shipments (client_id, awb, destination, weight, amount) select c1, 'L000000000000000000', 'MUMBAI', 1, 50 from tam.c;
+select tam.ok((select awb = 'L000000000000000001' from public.next_awb(null)), '18-digit series increments exactly');
+update public.awb_series set active = false where client_id = (select c2 from tam.c);
+select tam.ok((select scope = 'default' and awb = 'L000000000000000001' from public.next_awb((select c2 from tam.c))), 'inactive client series falls back to default');
+update public.awb_series set active = true where client_id = (select c2 from tam.c);
+select tam.expect_fail($q$select * from public.next_awb((select c2 from tam.c))$q$, 'reactivated client series overrides default again (still used up)', array['P0001'], '%used up%');
 -- tenant isolation
 select tam.expect_fail($q$insert into public.awb_series (client_id, prefix, start_number, digits) select cb, 'Z', 1, 3 from tam.c$q$, 'series on another seller''s client', array['23503', '42501']);
 select tam.as_user('00000000-0000-0000-0000-00000000a5b1');
@@ -189,6 +211,29 @@ set local role service_role;
 select tam.expect_fail($q$update public.shipments set manual_amount = 200 where awb = 'TAM-M1'$q$, 'manual locked after invoicing (service role)', array['P0001', '42501']);
 reset role;
 select tam.ok((select total > 0 from public.invoices where id = (select id from tam.ids where k = 'i1')), 'invoice issued');
+-- Indirect / trusted-role changes on billed rows (protect_billed_shipment lets service_role through;
+-- the charge guard must still refuse any change to amount or pricing fields)
+select tam.no_user();
+set local role service_role;
+select tam.expect_fail($q$update public.shipments set amount = 1 where awb = 'BOS000101'$q$, 'service role cannot change amount of invoiced shipment', array['P0001'], '%locked%');
+select tam.expect_fail($q$update public.shipments set pricing_status = 'needs_review' where awb = 'BOS000101'$q$, 'service role cannot change pricing status of invoiced shipment', array['P0001'], '%locked%');
+select tam.expect_fail($q$update public.shipments set charge_mode = 'manual', manual_amount = 5 where awb = 'BOS000101'$q$, 'service role cannot switch invoiced shipment to manual', array['P0001']);
+reset role;
+select tam.expect_fail($q$update public.shipments set amount = 1 where awb = 'BOS000101'$q$, 'table owner cannot change amount of invoiced shipment', array['P0001'], '%locked%');
+select tam.expect_fail($q$insert into public.shipments (owner_id, client_id, awb, destination, weight, amount, charge_mode, manual_amount) select '00000000-0000-0000-0000-00000000a5a1', c1, 'TAM-PG', 'MUMBAI', 1, 0, 'manual', 10 from tam.c$q$, 'table owner without a signed-in user cannot insert manual', array['42501']);
+-- a session whose user id is the owner but whose request role is service_role is still refused
+select set_config('request.jwt.claims', json_build_object('sub', '00000000-0000-0000-0000-00000000a5a1', 'role', 'service_role')::text, true);
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000a5a1', true);
+set local role service_role;
+select tam.expect_fail($q$insert into public.shipments (owner_id, client_id, awb, destination, weight, amount, charge_mode, manual_amount) select '00000000-0000-0000-0000-00000000a5a1', c1, 'TAM-SR2', 'MUMBAI', 1, 0, 'manual', 10 from tam.c$q$, 'service role carrying the owner id cannot insert manual', array['42501']);
+reset role;
+select tam.no_user();
+-- cross-tenant: seller B cannot create a manual shipment for seller A (owner_id is not writable; RLS)
+set local role authenticated;
+select tam.as_user('00000000-0000-0000-0000-00000000a5b1');
+select tam.expect_fail($q$insert into public.shipments (owner_id, client_id, awb, destination, weight, amount, charge_mode, manual_amount) select '00000000-0000-0000-0000-00000000a5a1', c1, 'TAM-X', 'MUMBAI', 1, 0, 'manual', 10 from tam.c$q$, 'seller B cannot insert manual shipment for seller A', array['42501']);
+select tam.expect_fail($q$insert into public.shipments (client_id, awb, destination, weight, amount, charge_mode, manual_amount) select c1, 'TAM-X2', 'MUMBAI', 1, 0, 'manual', 10 from tam.c$q$, 'seller B cannot attach a manual shipment to seller A''s client', array['23503', '42501']);
+reset role;
 
 -- E2. Finalize with a typed (DOX/NON-DOX) shipment — regression for the draft guard fix
 set local role authenticated;
@@ -199,6 +244,26 @@ insert into tam.ids select 'd2', public.create_invoice_draft((select c2 from tam
   array[(select id from public.shipments where awb = 'TAM-F1')]);
 insert into tam.ids select 'f2', public.finalize_invoice((select id from tam.ids where k = 'd2'));
 select tam.ok((select invoice_id = (select id from tam.ids where k = 'd2') and draft_invoice_id is null and amount = 120 from public.shipments where awb = 'TAM-F1'), 'typed manual shipment finalizes and links to issued invoice');
+-- E3. DOX + NON-DOX through save (line removed = release), discard and finalize
+insert into public.shipments (client_id, awb, destination, service, shipment_type, weight_f, weight, amount, charge_mode, manual_amount)
+select c2, 'TAM-D1', 'MUMBAI', 'Standard', 'DOX', 250, 0.25, 0, 'manual', 60 from tam.c;
+insert into public.shipments (client_id, awb, destination, service, shipment_type, weight_f, weight, amount, charge_mode, manual_amount)
+select c2, 'TAM-N1', 'PUNE', 'Fast', 'NON-DOX', 3, 3, 0, 'manual', 90 from tam.c;
+insert into tam.ids select 'd3', public.create_invoice_draft((select c2 from tam.c), current_date - 30, current_date,
+  array[(select id from public.shipments where awb = 'TAM-D1'), (select id from public.shipments where awb = 'TAM-N1')]);
+select tam.ok((select count(*) = 2 from public.shipments where draft_invoice_id = (select id from tam.ids where k = 'd3')), 'DOX and NON-DOX reserved by draft');
+select public.save_invoice_draft((select id from tam.ids where k = 'd3'), '{}'::jsonb,
+  jsonb_build_array(jsonb_build_object('shipment_id', (select id from public.shipments where awb = 'TAM-D1'), 'weight', 0.25, 'rate', 65, 'amount', 65)), '[]'::jsonb);
+select tam.ok((select draft_invoice_id is null and amount = 90 from public.shipments where awb = 'TAM-N1'), 'save draft releases removed NON-DOX line, amount unchanged');
+select tam.ok((select draft_invoice_id is not null and amount = 60 from public.shipments where awb = 'TAM-D1'), 'save draft keeps DOX reserved; line edit does not touch the shipment');
+select public.discard_invoice_draft((select id from tam.ids where k = 'd3'));
+select tam.ok((select draft_invoice_id is null and amount = 60 and weight_f = 250 from public.shipments where awb = 'TAM-D1'), 'discard releases DOX shipment unchanged');
+insert into tam.ids select 'd4', public.create_invoice_draft((select c2 from tam.c), current_date - 30, current_date,
+  array[(select id from public.shipments where awb = 'TAM-D1'), (select id from public.shipments where awb = 'TAM-N1')]);
+insert into tam.ids select 'f4', public.finalize_invoice((select id from tam.ids where k = 'd4'));
+select tam.ok((select count(*) = 2 and bool_and(invoice_id = (select id from tam.ids where k = 'd4') and draft_invoice_id is null)
+  and sum(amount) = 150 from public.shipments where awb in ('TAM-D1', 'TAM-N1')), 'DOX and NON-DOX finalize, link to issued invoice, amounts kept');
+select tam.ok((select total = 150 from public.invoices where id = (select id from tam.ids where k = 'd4')), 'issued Non-GST invoice total = stored amounts');
 reset role;
 
 -- F. Audit history
@@ -209,6 +274,10 @@ select tam.ok((select count(*) = 1 from public.shipment_charge_audit where awb =
 select tam.ok((select count(*) = 1 from public.shipment_charge_audit where awb = 'TAM-M2' and action = 'delete' and old_amount = 80), 'audit: manual shipment deleted, history kept');
 select tam.ok((select count(*) = 0 from public.shipment_charge_audit where awb = 'TAM-M1' and new_amount = 200), 'audit: refused changes not logged');
 select tam.ok((select count(*) = 0 from public.shipment_charge_audit where awb like 'BOS%' or awb = '0007'), 'audit: auto-only shipments not logged');
+select tam.ok((select count(*) = 0 from public.shipment_charge_audit a join public.shipments s on s.id = a.shipment_id
+  where a.id = (select max(a2.id) from public.shipment_charge_audit a2 where a2.shipment_id = a.shipment_id)
+    and a.action <> 'delete' and a.new_amount is distinct from s.amount), 'audit: latest entry equals the final stored amount');
+select tam.ok((select count(*) > 0 and bool_and(actor_role = 'authenticated') from public.shipment_charge_audit where owner_id = '00000000-0000-0000-0000-00000000a5a1'), 'audit: records the request role, not the function owner');
 set local role authenticated;
 select tam.as_user('00000000-0000-0000-0000-00000000a5b1');
 select tam.ok((select count(*) = 0 from public.shipment_charge_audit), 'audit: other seller sees nothing');
@@ -229,5 +298,8 @@ select tam.expect_fail($q$truncate public.shipment_charge_audit$q$, 'audit trunc
 select tam.ok((select count(*) = 0 from (select * from tam.ship_before except select * from public.shipments) d), 'existing shipments unchanged');
 select tam.ok((select count(*) = 0 from (select * from tam.inv_before except select * from public.invoices) d), 'existing invoices unchanged');
 
-do $$ begin raise notice 'ALL AWB SERIES AND MANUAL CHARGE TESTS PASSED'; end $$;
+do $$ declare v_n int := (select count(*) from tam.log); begin
+  if v_n <> 85 then raise exception 'FAIL: % assertions passed, expected 85', v_n; end if;
+  raise notice 'ALL AWB SERIES AND MANUAL CHARGE TESTS PASSED (% assertions)', v_n;
+end $$;
 rollback;

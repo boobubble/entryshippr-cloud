@@ -74,11 +74,16 @@ begin
      and (a.client_id = p_client_id or a.client_id is null)
    order by (a.client_id is null) limit 1;
   if not found then return; end if;            -- no series configured: no suggestion
+  -- prefix is limited to [A-Z0-9/-] by awb_series_prefix_chk, none of which are regex
+  -- metacharacters outside brackets, so it matches literally (case-sensitive).
   v_pat := '^' || s.prefix || '[0-9]{' || s.digits || '}$';
-  select max(substr(sh.awb, char_length(s.prefix) + 1)::numeric) into v_max
-    from public.shipments sh
-   where sh.owner_id = auth.uid() and sh.awb ~ v_pat
-     and substr(sh.awb, char_length(s.prefix) + 1)::numeric >= s.start_number;
+  -- The CASE guarantees the numeric cast only runs on rows that matched the pattern
+  -- (PostgreSQL does not promise WHERE-clause evaluation order).
+  select max(t.n) into v_max
+    from (select case when sh.awb ~ v_pat then substr(sh.awb, char_length(s.prefix) + 1)::numeric end as n
+            from public.shipments sh
+           where sh.owner_id = auth.uid() and sh.awb like s.prefix || '%') t
+   where t.n >= s.start_number;
   v_n := coalesce(v_max + 1, s.start_number);
   loop
     if char_length(v_n::text) > s.digits then
@@ -113,9 +118,13 @@ grant update (charge_mode, manual_amount) on public.shipments to authenticated;
 -- Add staff here later (e.g. a seller_staff table with a can_manual_charge flag).
 create schema if not exists entrysetu_private;
 revoke all on schema entrysetu_private from public, anon, authenticated;
+-- Requires a signed-in request (JWT role 'authenticated') whose user IS the owner.
+-- service_role requests, SQL-editor sessions without a user, and other sellers are refused.
 create or replace function entrysetu_private.can_manual_charge(p_owner uuid)
 returns boolean language sql stable security definer set search_path = '' as $$
-  select auth.uid() is not null and auth.uid() = p_owner
+  select p_owner is not null
+     and auth.uid() is not null and auth.uid() = p_owner
+     and coalesce(auth.jwt() ->> 'role', '') = 'authenticated'
 $$;
 revoke all on function entrysetu_private.can_manual_charge(uuid) from public, anon, authenticated, service_role;
 
@@ -160,8 +169,21 @@ create trigger shipments_apply_rate
                              amount, rate_zone, rate_slab, rate_applied, charge_mode, manual_amount
   on public.shipments for each row execute function public.shipments_apply_rate();
 
--- Guard: only the owner may set or change Manual mode; never on invoiced or draft-reserved shipments.
-create or replace function public.shipments_charge_guard()
+-- Guard (runs LAST among the BEFORE triggers so it sees the final row).
+-- PostgreSQL fires same-event row triggers in alphabetical name order:
+--   shipments_apply_rate -> shipments_draft_guard -> shipments_protect
+--   -> shipments_sync_weight -> shipments_zz_charge_guard
+-- It fires on EVERY insert/update (no column list), because an UPDATE OF list is
+-- matched against the statement's SET columns only — values changed indirectly by
+-- an earlier trigger (e.g. amount recomputed after a destination edit) would escape it.
+--  1. Billing lock, for every role incl. service_role and table owner: while a
+--     shipment is (or is being put) on a draft or issued invoice, charge_mode,
+--     manual_amount, amount and the rate fields cannot change by any path.
+--  2. Manual authority: entering Manual, changing a manual amount or switching
+--     mode needs entrysetu_private.can_manual_charge (signed-in owner only).
+drop trigger if exists shipments_charge_guard on public.shipments;
+drop function if exists public.shipments_charge_guard();
+create or replace function public.shipments_zz_charge_guard()
 returns trigger language plpgsql security definer set search_path = '' as $$
 begin
   if tg_op = 'INSERT' then
@@ -170,20 +192,27 @@ begin
     end if;
     return new;
   end if;
-  if new.charge_mode is distinct from old.charge_mode or new.manual_amount is distinct from old.manual_amount then
-    if old.invoice_id is not null or old.draft_invoice_id is not null then
-      raise exception 'Charges for shipment % are locked by an invoice or draft invoice', old.awb using errcode = 'P0001';
-    end if;
-    if not entrysetu_private.can_manual_charge(old.owner_id) then
-      raise exception 'Only the account owner can change manual charges' using errcode = '42501';
-    end if;
+  if (old.invoice_id is not null or old.draft_invoice_id is not null
+      or new.invoice_id is not null or new.draft_invoice_id is not null)
+     and (new.charge_mode    is distinct from old.charge_mode
+       or new.manual_amount  is distinct from old.manual_amount
+       or new.amount         is distinct from old.amount
+       or new.rate_applied   is distinct from old.rate_applied
+       or new.rate_zone      is distinct from old.rate_zone
+       or new.rate_slab      is distinct from old.rate_slab
+       or new.pricing_status is distinct from old.pricing_status) then
+    raise exception 'Charges for shipment % are locked by an invoice or draft invoice', old.awb using errcode = 'P0001';
+  end if;
+  if (new.charge_mode is distinct from old.charge_mode or new.manual_amount is distinct from old.manual_amount)
+     and not entrysetu_private.can_manual_charge(old.owner_id) then
+    raise exception 'Only the account owner can change manual charges' using errcode = '42501';
   end if;
   return new;
 end $$;
-revoke all on function public.shipments_charge_guard() from public, anon, authenticated, service_role;
-drop trigger if exists shipments_charge_guard on public.shipments;
-create trigger shipments_charge_guard before insert or update of charge_mode, manual_amount on public.shipments
-  for each row execute function public.shipments_charge_guard();
+revoke all on function public.shipments_zz_charge_guard() from public, anon, authenticated, service_role;
+drop trigger if exists shipments_zz_charge_guard on public.shipments;
+create trigger shipments_zz_charge_guard before insert or update on public.shipments
+  for each row execute function public.shipments_zz_charge_guard();
 
 -- Repricing never touches Manual shipments (same body as the invoice editor version + one filter).
 create or replace function public.reprice_review(p_owner uuid)
@@ -200,6 +229,7 @@ revoke all on function public.reprice_review(uuid) from public, anon, authentica
 grant execute on function public.reprice_review(uuid) to service_role;
 
 -- Immutable audit history. No foreign keys, so deleting a shipment keeps its history.
+-- new_amount / old_amount are the FINAL stored shipments.amount (written AFTER the row is saved).
 create table if not exists public.shipment_charge_audit (
   id bigint generated always as identity primary key,
   owner_id uuid not null,
@@ -208,9 +238,12 @@ create table if not exists public.shipment_charge_audit (
   action text not null check (action in ('insert', 'update', 'delete')),
   old_mode text, new_mode text,
   old_amount numeric(12,2), new_amount numeric(12,2),
-  actor uuid, actor_role text not null default current_user,
+  actor uuid, actor_role text not null,
   created_at timestamptz not null default now()
 );
+-- Earlier revision defaulted actor_role to current_user, which inside the SECURITY DEFINER
+-- trigger is always the function owner. The trigger now writes the request role explicitly.
+alter table public.shipment_charge_audit alter column actor_role drop default;
 create index if not exists shipment_charge_audit_owner_idx on public.shipment_charge_audit (owner_id, shipment_id, created_at);
 revoke all on public.shipment_charge_audit from public, anon, authenticated, service_role;
 grant select on public.shipment_charge_audit to authenticated;
@@ -231,20 +264,21 @@ create trigger shipment_charge_audit_block_trunc before truncate on public.shipm
   for each statement execute function public.shipment_charge_audit_block();
 
 -- Logs every Manual entry, every switch Auto<->Manual, every manual amount change,
--- and deletion of a Manual shipment. Amounts are the final stored amounts.
+-- and deletion of a Manual shipment.
 create or replace function public.shipments_charge_audit()
 returns trigger language plpgsql security definer set search_path = '' as $$
+declare v_role text := coalesce(nullif(auth.jwt() ->> 'role', ''), session_user::text);
 begin
   if tg_op = 'INSERT' and new.charge_mode = 'manual' then
-    insert into public.shipment_charge_audit (owner_id, shipment_id, awb, action, new_mode, new_amount, actor)
-    values (new.owner_id, new.id, new.awb, 'insert', 'manual', new.amount, auth.uid());
+    insert into public.shipment_charge_audit (owner_id, shipment_id, awb, action, new_mode, new_amount, actor, actor_role)
+    values (new.owner_id, new.id, new.awb, 'insert', 'manual', new.amount, auth.uid(), v_role);
   elsif tg_op = 'UPDATE' and (new.charge_mode is distinct from old.charge_mode
         or (new.charge_mode = 'manual' and new.manual_amount is distinct from old.manual_amount)) then
-    insert into public.shipment_charge_audit (owner_id, shipment_id, awb, action, old_mode, new_mode, old_amount, new_amount, actor)
-    values (new.owner_id, new.id, new.awb, 'update', old.charge_mode, new.charge_mode, old.amount, new.amount, auth.uid());
+    insert into public.shipment_charge_audit (owner_id, shipment_id, awb, action, old_mode, new_mode, old_amount, new_amount, actor, actor_role)
+    values (new.owner_id, new.id, new.awb, 'update', old.charge_mode, new.charge_mode, old.amount, new.amount, auth.uid(), v_role);
   elsif tg_op = 'DELETE' and old.charge_mode = 'manual' then
-    insert into public.shipment_charge_audit (owner_id, shipment_id, awb, action, old_mode, old_amount, actor)
-    values (old.owner_id, old.id, old.awb, 'delete', 'manual', old.amount, auth.uid());
+    insert into public.shipment_charge_audit (owner_id, shipment_id, awb, action, old_mode, old_amount, actor, actor_role)
+    values (old.owner_id, old.id, old.awb, 'delete', 'manual', old.amount, auth.uid(), v_role);
   end if;
   return null;
 end $$;
@@ -252,6 +286,7 @@ revoke all on function public.shipments_charge_audit() from public, anon, authen
 drop trigger if exists shipments_charge_audit on public.shipments;
 create trigger shipments_charge_audit after insert or update or delete on public.shipments
   for each row execute function public.shipments_charge_audit();
+
 
 -- ---------------------------------------------------------------------
 -- C. Bug fix found while testing: billing_weight and weight_unit are GENERATED
