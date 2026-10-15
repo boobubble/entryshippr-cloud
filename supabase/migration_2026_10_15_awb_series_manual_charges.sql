@@ -74,11 +74,16 @@ begin
      and (a.client_id = p_client_id or a.client_id is null)
    order by (a.client_id is null) limit 1;
   if not found then return; end if;            -- no series configured: no suggestion
+  -- prefix is limited to [A-Z0-9/-] by awb_series_prefix_chk, none of which are regex
+  -- metacharacters outside brackets, so it matches literally (case-sensitive).
   v_pat := '^' || s.prefix || '[0-9]{' || s.digits || '}$';
-  select max(substr(sh.awb, char_length(s.prefix) + 1)::numeric) into v_max
-    from public.shipments sh
-   where sh.owner_id = auth.uid() and sh.awb ~ v_pat
-     and substr(sh.awb, char_length(s.prefix) + 1)::numeric >= s.start_number;
+  -- The CASE guarantees the numeric cast only runs on rows that matched the pattern
+  -- (PostgreSQL does not promise WHERE-clause evaluation order).
+  select max(t.n) into v_max
+    from (select case when sh.awb ~ v_pat then substr(sh.awb, char_length(s.prefix) + 1)::numeric end as n
+            from public.shipments sh
+           where sh.owner_id = auth.uid() and sh.awb like s.prefix || '%') t
+   where t.n >= s.start_number;
   v_n := coalesce(v_max + 1, s.start_number);
   loop
     if char_length(v_n::text) > s.digits then
@@ -113,9 +118,13 @@ grant update (charge_mode, manual_amount) on public.shipments to authenticated;
 -- Add staff here later (e.g. a seller_staff table with a can_manual_charge flag).
 create schema if not exists entrysetu_private;
 revoke all on schema entrysetu_private from public, anon, authenticated;
+-- Requires a signed-in request (JWT role 'authenticated') whose user IS the owner.
+-- service_role requests, SQL-editor sessions without a user, and other sellers are refused.
 create or replace function entrysetu_private.can_manual_charge(p_owner uuid)
 returns boolean language sql stable security definer set search_path = '' as $$
-  select auth.uid() is not null and auth.uid() = p_owner
+  select p_owner is not null
+     and auth.uid() is not null and auth.uid() = p_owner
+     and coalesce(auth.jwt() ->> 'role', '') = 'authenticated'
 $$;
 revoke all on function entrysetu_private.can_manual_charge(uuid) from public, anon, authenticated, service_role;
 
