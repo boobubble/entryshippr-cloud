@@ -222,7 +222,7 @@ function ImportPage() {
     <div>
       <PageHead title="Excel import"><Button variant="outline" onClick={template}>Download template</Button></PageHead>
       <div className="rounded-xl border-2 border-dashed bg-card p-8 text-center">
-        <p className="mb-3 text-sm text-muted-foreground">Upload any courier .xlsx, .xls or .csv sheet. You can match its columns below. Weights are read from columns F, G, H and T by default: grams for DOX, kilograms for NON-DOX. The highest one is the billing weight. Amounts come from the sheet or your <Link to="/rate-cards" className="text-primary underline">rate cards</Link>.</p>
+        <p className="mb-3 text-sm text-muted-foreground">Upload any courier .xlsx, .xls or .csv sheet. You can match its columns below. Weights are read from columns F, G, H and T by default: grams for DOX, kilograms for NON-DOX. The highest one is the billing weight. Prices come from your <Link to="/rate-cards" className="text-primary underline">rate cards</Link> using the zone you set for each destination city.</p>
         <input type="file" accept=".xlsx,.xls,.csv" onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f); e.target.value = ""; }} className="mx-auto block text-sm" />
       </div>
 
@@ -258,14 +258,15 @@ function ImportPage() {
 
           <section>
             <div className="mb-3 grid grid-cols-2 gap-3 text-sm sm:grid-cols-3 lg:grid-cols-6">
-              {[["Total rows", rows.length], ["Valid (new)", valid.length], ["Duplicate AWBs", dups], ["Rows with errors", errors], ["Needs rate review", review], ["DOX / NON-DOX", `${dox} / ${valid.length - dox}`]].map(([l, v]) => (
+              {[["Total rows", rows.length], ["Priced (new)", valid.length], ["Duplicate AWBs", dups], ["Rows with errors", errors], ["Will import as Needs Review", review], ["DOX / NON-DOX", `${dox} / ${valid.length - dox}`]].map(([l, v]) => (
                 <div key={l} className="rounded-lg border bg-card p-3"><div className="text-muted-foreground">{l}</div><div className="text-lg font-semibold">{v}</div></div>
               ))}
             </div>
             <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
               <div className="text-sm">Total for valid rows: {inr(total)}</div>
               <label className="flex items-center gap-2 text-sm"><Switch checked={createClients} onCheckedChange={setCreateClients} />Create new clients from sheet names</label>
-              <Button onClick={process} disabled={busy || !valid.length || missingReq.length > 0}>{busy ? "Importing…" : `Import ${valid.length} shipments`}</Button>
+              {unmapped.length > 0 && <Button variant="outline" onClick={() => setDialog(true)}>Assign zones ({unmapped.length} {unmapped.length === 1 ? "city" : "cities"})</Button>}
+              <Button onClick={process} disabled={busy || !importable.length || missingReq.length > 0 || cityMap === null}>{busy ? "Importing…" : cityMap === null ? "Checking cities…" : `Import ${importable.length} shipments`}</Button>
             </div>
             {missingReq.length > 0 && <p className="mb-3 text-sm text-destructive">Map these columns first: {missingReq.map((k) => FIELD_LABELS[k]).join(", ")}</p>}
             <div className="max-h-[520px] overflow-auto rounded-xl border bg-card">
@@ -290,6 +291,8 @@ function ImportPage() {
           </section>
         </div>
       )}
+      <CityZoneDialog open={dialog} items={unmapped} zones={zones} onClose={() => setDialog(false)}
+        onSaved={() => { setDialog(false); setCityTick((t) => t + 1); qc.invalidateQueries({ queryKey: ["zones"] }); }} />
     </div>
   );
 }
