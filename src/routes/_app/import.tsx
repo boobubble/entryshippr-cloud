@@ -1,4 +1,4 @@
-import { up, upName, nameKey } from "@/lib/text";
+import { up, upName, nameKey, clientDetails, groupClients, isDupClientError } from "@/lib/text";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -106,7 +106,14 @@ function ImportPage() {
   const unmapped = useMemo(() => [...(cityMap?.values() ?? [])].filter((r) => (r.status === "unmapped" && r.city_id) || r.status === "ambiguous"), [cityMap]);
   useEffect(() => { if (unmapped.length && !autoOpened) { setDialog(true); setAutoOpened(true); } }, [unmapped, autoOpened]);
 
-  const clientIds = useMemo(() => new Map(clients.map((c) => [nameKey(c.name), c.id])), [clients]);
+  // Same-name clients (differing only by case/spacing) are never guessed: the seller picks the record.
+  const clientGroups = useMemo(() => groupClients(clients), [clients]);
+  const [clientPick, setClientPick] = useState<Record<string, string>>({});
+  const clientIds = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const [k, g] of clientGroups) { const id = g.length === 1 ? g[0]!.id : clientPick[k]; if (id) m.set(k, id); }
+    return m;
+  }, [clientGroups, clientPick]);
   const rows: Row[] = useMemo(() => {
     if (!sheet || !map) return [];
     const get = (r: unknown[], k: FieldKey) => (map[k] == null ? "" : r[map[k]!]);
@@ -167,18 +174,25 @@ function ImportPage() {
     toast.success("Mapping saved"); saved.refetch();
   }
 
+  const sameNameInSheet = [...new Set(importable.map((r) => nameKey(r.client)))].filter((k) => (clientGroups.get(k)?.length ?? 0) > 1);
+  const unresolvedClients = sameNameInSheet.filter((k) => !clientPick[k]);
+
   async function process() {
     // Unassigned cities must be assigned or explicitly skipped before importing.
     if (unmapped.length && !skipped) { setDialog(true); return; }
     setBusy(true);
     try {
       // Existing clients are matched ignoring case/spacing and their IDs reused; new ones are saved in UPPERCASE.
-      const byName = new Map(clients.map((c) => [nameKey(c.name), c.id]));
-      const missing = [...new Map(importable.filter((r) => !byName.has(nameKey(r.client))).map((r) => [nameKey(r.client), upName(r.client)])).values()];
+      if (unresolvedClients.length) throw new Error(`Choose which client to use for: ${unresolvedClients.map(up).join(", ")}`);
+      const byName = new Map(clientIds);
+      const missing = [...new Map(importable.filter((r) => !clientGroups.has(nameKey(r.client))).map((r) => [nameKey(r.client), upName(r.client)])).values()];
       if (missing.length) {
         if (!createClients) throw new Error(`Unknown clients: ${missing.slice(0, 5).join(", ")}${missing.length > 5 ? "…" : ""}`);
         const { data, error } = await supabase.from("clients").insert(missing.map((name) => ({ name }))).select("id, name");
-        if (error) throw error;
+        if (error) {
+          if (isDupClientError(error)) { await qc.invalidateQueries({ queryKey: ["clients"] }); throw new Error("Some of these clients already exist. The client list was refreshed — review the matches and import again."); }
+          throw error;
+        }
         data!.forEach((c) => byName.set(nameKey(c.name), c.id));
       }
       const out = [];
@@ -267,8 +281,22 @@ function ImportPage() {
               <div className="text-sm">Total for valid rows: {inr(total)}</div>
               <label className="flex items-center gap-2 text-sm"><Switch checked={createClients} onCheckedChange={setCreateClients} />Create new clients from sheet names</label>
               {unmapped.length > 0 && <Button variant="outline" onClick={() => setDialog(true)}>Assign zones ({unmapped.length} {unmapped.length === 1 ? "city" : "cities"})</Button>}
-              <Button onClick={process} disabled={busy || !importable.length || missingReq.length > 0 || cityMap === null}>{busy ? "Importing…" : cityMap === null ? "Checking cities…" : `Import ${importable.length} shipments`}</Button>
+              <Button onClick={process} disabled={busy || !importable.length || missingReq.length > 0 || cityMap === null || unresolvedClients.length > 0}>{busy ? "Importing…" : cityMap === null ? "Checking cities…" : `Import ${importable.length} shipments`}</Button>
             </div>
+            {sameNameInSheet.length > 0 && (
+              <div className="mb-3 space-y-2 rounded-lg border border-destructive/50 p-3 text-sm">
+                <p className="font-medium">Several saved clients share these names. Choose the one to use for this import:</p>
+                {sameNameInSheet.map((k) => (
+                  <label key={k} className="grid gap-1 sm:grid-cols-[200px_1fr] sm:items-center">
+                    <span className="font-medium">{up(k)}</span>
+                    <select className="h-9 rounded-md border bg-background px-2" value={clientPick[k] ?? ""} onChange={(e) => setClientPick((p) => ({ ...p, [k]: e.target.value }))}>
+                      <option value="">Choose client…</option>
+                      {clientGroups.get(k)!.map((c) => <option key={c.id} value={c.id}>{up(c.name)} — {clientDetails(c)}</option>)}
+                    </select>
+                  </label>
+                ))}
+              </div>
+            )}
             {missingReq.length > 0 && <p className="mb-3 text-sm text-destructive">Map these columns first: {missingReq.map((k) => FIELD_LABELS[k]).join(", ")}</p>}
             <div className="max-h-[520px] overflow-auto rounded-xl border bg-card">
               <table className="w-full text-sm">
