@@ -1,0 +1,11 @@
+-- =====================================================================
+-- EntrySetu V1 — Final Invoice Editor, PART 1 of 2. DEVELOPMENT ONLY
+-- (zfvnqcyqxxipjaugkmvf). Never run on production.
+--
+-- Run this ONE statement by itself first, then run PART 2.
+-- PostgreSQL does not allow a new enum value to be used in constraints or
+-- indexes inside the same transaction that adds it, so it must be committed
+-- before migration_2026_10_15_invoice_editor.sql.
+-- Additive and re-runnable. Existing invoices keep their status.
+-- =====================================================================
+alter type public.invoice_status add value if not exists 'draft' before 'issued';
