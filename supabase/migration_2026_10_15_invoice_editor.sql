@@ -617,7 +617,7 @@ begin
   select * into v from public.invoices where id = p_invoice_id and owner_id = v_uid and status = 'draft' for update;
   if not found then raise exception 'Draft not found or already finalized' using errcode = 'P0001'; end if;
 
-  -- Header
+  -- Header (keys left out of p_header keep their current value)
   v_kind := coalesce((p_header->>'kind')::public.invoice_kind, v.kind);
   v_numbering := coalesce(p_header->>'numbering', v.numbering);
   if v_numbering not in ('auto', 'manual') then raise exception 'Numbering must be auto or manual'; end if;
@@ -637,11 +637,11 @@ begin
     period_to = coalesce((p_header->>'period_to')::date, v.period_to),
     gst_rate = case when v_kind = 'gst' then coalesce((p_header->>'gst_rate')::numeric, nullif(v.gst_rate, 0), 18) else 0 end,
     tax_mode = public.invoice_tax_mode(v_uid, v.client_id, v_kind),
-    round_off = coalesce((p_header->>'round_off')::numeric, 0),
+    round_off = case when p_header ? 'round_off' then coalesce((p_header->>'round_off')::numeric, 0) else v.round_off end,
     -- taxes are rewritten by invoice_recalc below; clear them so a GST -> Non-GST
     -- switch satisfies the existing "Non-GST carries no tax" check mid-call
     cgst = 0, sgst = 0, igst = 0,
-    notes = nullif(btrim(coalesce(p_header->>'notes', '')), ''),
+    notes = case when p_header ? 'notes' then nullif(btrim(coalesce(p_header->>'notes', '')), '') else v.notes end,
     numbering = v_numbering,
     requested_invoice_no = v_req
   where id = v.id
