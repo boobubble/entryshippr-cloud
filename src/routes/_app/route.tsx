@@ -29,9 +29,10 @@ function AppLayout() {
   const { data } = useProfile();
   const navigate = useNavigate();
   const st = accessState(data?.profile);
+  const collapsed = useSidebarCollapsed();
   return (
     <div className="flex min-h-screen bg-background">
-      <aside className="no-print hidden w-60 shrink-0 flex-col bg-sidebar p-4 text-sidebar-foreground md:flex">
+      <aside className={`no-print hidden w-60 shrink-0 flex-col bg-sidebar p-4 text-sidebar-foreground ${collapsed ? "" : "md:flex"}`}>
         <div className="mb-6 px-2 font-display text-xl font-bold">EntrySetu</div>
         <nav className="flex-1 space-y-1">
           {nav.map((n) => (
