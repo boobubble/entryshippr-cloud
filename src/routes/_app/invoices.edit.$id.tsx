@@ -20,7 +20,7 @@ export const Route = createFileRoute("/_app/invoices/edit/$id")({
 
 type Line = Pick<InvoiceLine, "shipment_id" | "ship_date" | "awb" | "receiver_name" | "destination" | "shipment_type" | "original_weight" | "original_amount"> & { weight: string; rate: string; amount: string; declared_value: string };
 type Charge = { code: string; label: string; mode: "fixed" | "percent"; base: "subtotal" | "declared_value"; value: string };
-type Header = { invoice_date: string; period_from: string; period_to: string; kind: "gst" | "nongst"; gst_rate: string; round_off: string; notes: string; numbering: "auto" | "manual"; requested_invoice_no: string };
+type Header = { invoice_date: string; period_from: string; period_to: string; kind: "gst" | "nongst"; gst_rate: string; round_off: string; notes: string; numbering: "auto" | "manual"; requested_invoice_no: string; bill_to_name: string };
 
 const PRESETS: [string, string][] = [["fuel", "Fuel Surcharge"], ["fov", "FOV"], ["packing", "Packing"], ["pickup", "Pickup"], ["handling", "Handling"], ["delivery", "Delivery"], ["extra", "Extra Charges"], ["custom", "Custom"]];
 const sel = "h-9 w-full rounded-md border bg-background px-2 text-sm";
@@ -43,7 +43,7 @@ function Editor() {
   useEffect(() => {
     if (!data) return;
     const i = data.inv;
-    setH({ invoice_date: i.invoice_date, period_from: i.period_from, period_to: i.period_to, kind: i.kind, gst_rate: s(Number(i.gst_rate) || 18), round_off: s(Number(i.round_off ?? 0)), notes: s(i.notes), numbering: i.numbering ?? "auto", requested_invoice_no: s(i.requested_invoice_no) });
+    setH({ invoice_date: i.invoice_date, period_from: i.period_from, period_to: i.period_to, kind: i.kind, gst_rate: s(Number(i.gst_rate) || 18), round_off: s(Number(i.round_off ?? 0)), notes: s(i.notes), numbering: i.numbering ?? "auto", requested_invoice_no: s(i.requested_invoice_no), bill_to_name: up(i.bill_to_name ?? i.clients?.name ?? "") });
     setLines(data.lines.map((l) => ({ ...l, weight: s(l.weight), rate: s(l.rate), amount: s(l.amount), declared_value: s(l.declared_value) })));
     setCharges(data.charges.map((c) => ({ code: c.code, label: c.label, mode: c.mode, base: c.base === "declared_value" ? "declared_value" : "subtotal", value: s(c.value) })));
     setDirty(false);
@@ -73,9 +73,10 @@ function Editor() {
   const addable = available.filter((a) => !inList.has(a.id));
 
   async function save(): Promise<boolean> {
+    if (!h!.bill_to_name.trim()) { toast.error("Bill To Name cannot be blank"); return false; }
     setBusy(true);
     try {
-      const header = { ...h!, gst_rate: Number(h!.gst_rate), round_off: Number(h!.round_off || 0), requested_invoice_no: h!.numbering === "manual" ? h!.requested_invoice_no : null };
+      const header = { ...h!, bill_to_name: h!.bill_to_name.trim().replace(/\s+/g, " "), gst_rate: Number(h!.gst_rate), round_off: Number(h!.round_off || 0), requested_invoice_no: h!.numbering === "manual" ? h!.requested_invoice_no : null };
       const pl = lines.map((l) => ({ shipment_id: l.shipment_id, weight: Number(l.weight), rate: Number(l.rate), amount: Number(l.amount), declared_value: l.declared_value === "" ? null : Number(l.declared_value) }));
       const pc = charges.map((c) => ({ code: c.code, label: c.label, mode: c.mode, base: c.mode === "fixed" ? "none" : c.base, value: Number(c.value || 0) }));
       const { error } = await supabase.rpc("save_invoice_draft", { p_invoice_id: id, p_header: header, p_lines: pl, p_charges: pc });
@@ -138,6 +139,9 @@ function Editor() {
         <div><Label>Invoice date</Label><Input type="date" value={h.invoice_date} onChange={(e) => upd(() => setH({ ...h, invoice_date: e.target.value }))} /></div>
         <div><Label>Period from</Label><Input type="date" value={h.period_from} onChange={(e) => upd(() => setH({ ...h, period_from: e.target.value }))} /></div>
         <div><Label>Period to</Label><Input type="date" value={h.period_to} onChange={(e) => upd(() => setH({ ...h, period_to: e.target.value }))} /></div>
+        <div className="sm:col-span-2 lg:col-span-4"><Label>Bill To Name</Label>
+          <Input value={h.bill_to_name} maxLength={200} onChange={(e) => upd(() => setH({ ...h, bill_to_name: e.target.value.toUpperCase() }))} />
+          <p className="mt-1 text-xs text-muted-foreground">Only for this invoice. The client's name in Clients is not changed.{inv.clients?.name && h.bill_to_name.trim() !== up(inv.clients.name) ? <> Client name: {up(inv.clients.name)} · <button type="button" className="underline" onClick={() => upd(() => setH({ ...h, bill_to_name: up(inv.clients.name) }))}>Use client name</button></> : null}</p></div>
         <div><Label>Invoice type</Label>
           <select className={sel} value={h.kind} onChange={(e) => upd(() => setH({ ...h, kind: e.target.value as Header["kind"] }))}><option value="gst">GST invoice</option><option value="nongst">Non-GST bill</option></select></div>
         <div><Label>GST rate</Label>
