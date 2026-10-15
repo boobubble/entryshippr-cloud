@@ -60,7 +60,7 @@ export function calcAmount(cards: RateCard[], clientId: string, service: string,
   const s = service.trim().toLowerCase();
   const match = (cid: string | null) =>
     cards.filter((c) => c.client_id === cid && c.service.toLowerCase() === s);
-  let pool = match(clientId);
+  let pool = clientId ? match(clientId) : [];
   if (!pool.length) pool = match(null);
   if (!pool.length) return null;
   const inRange = pool.find((c) => weight >= Number(c.min_weight) && weight <= Number(c.max_weight));

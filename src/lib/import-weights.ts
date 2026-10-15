@@ -6,7 +6,7 @@ export type Mapping = Record<FieldKey, number | null>; // column index (0 = A) o
 
 export const FIELD_LABELS: Record<FieldKey, string> = {
   awb: "AWB / tracking no.", date: "Shipment date", client: "Client", type: "Shipment type (DOX / NON-DOX)",
-  destination: "Destination", service: "Service", pieces: "Pieces", amount: "Amount (optional)",
+  destination: "Destination", service: "Service", pieces: "Pieces", amount: "Sheet amount (compare only)",
   w1: "Weight 1 (col F)", w2: "Weight 2 (col G)", w3: "Weight 3 (col H)", w4: "Weight 4 (col T)",
 };
 export const REQUIRED: FieldKey[] = ["awb", "client"];
@@ -54,7 +54,9 @@ export function parseType(v: unknown): ShipmentType | null {
 export function parseWeight(v: unknown): number | null {
   if (v === null || v === undefined || v === "") return null;
   const n = typeof v === "number" ? v : Number(String(v).replace(/,/g, "").trim());
-  return Number.isFinite(n) && n > 0 ? n : null;
+  if (!Number.isFinite(n)) return null;
+  const r = Math.round(n * 1000) / 1000; // database stores 3 decimals
+  return r > 0 ? r : null;
 }
 
 /** Billing weight = MAX of valid weights, in the shipment's own unit (g for DOX, kg for NON-DOX). */
