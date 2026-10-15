@@ -1,3 +1,4 @@
+import { up } from "@/lib/text";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -62,7 +63,7 @@ function Clients() {
           <tbody>
             {list.map((c) => (
               <tr key={c.id} className="border-t">
-                <td className="p-3 font-medium">{c.name}</td><td className="p-3">{c.phone}</td><td className="p-3">{c.gstin}</td><td className="p-3">{c.state}</td>
+                <td className="p-3 font-medium">{up(c.name)}</td><td className="p-3">{c.phone}</td><td className="p-3">{c.gstin}</td><td className="p-3">{up(c.state)}</td>
                 <td className="p-3">{c.is_gst ? "GST" : "Non-GST"}</td>
                 <td className="p-3"><Switch checked={c.active} onCheckedChange={() => toggle(c)} /></td>
                 <td className="p-3 text-right whitespace-nowrap">

@@ -54,7 +54,7 @@ export function ClientInput({ clients, value, onChange, required }: {
   const listId = useId();
   const current = clients.find((c) => c.id === value);
   const [text, setText] = useState(current ? up(current.name) : "");
-  useEffect(() => { if (current) setText(up(current.name)); else if (!value) setText(""); }, [value, current]);
+  useEffect(() => { if (current) setText(up(current.name)); }, [value, current]);
   return (
     <>
       <Input list={listId} className="uppercase" autoComplete="off" required={required} placeholder="Type to search…" value={text}

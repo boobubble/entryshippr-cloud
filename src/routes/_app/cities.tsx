@@ -1,3 +1,4 @@
+import { up } from "@/lib/text";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -298,7 +299,7 @@ function CitiesPage() {
               <p className="font-medium">"{amb.input}" matches several cities. Which one do you mean?</p>
               <select aria-label={`Which ${amb.input}`} className={`${sel} w-full`} value={amb.pick} onChange={(e) => setAmb({ ...amb, pick: e.target.value })}>
                 <option value="">Choose…</option>
-                {amb.candidates.map((k) => <option key={k.id} value={k.id}>{k.name}{k.district ? `, ${k.district}` : ""}{k.state ? `, ${k.state}` : " (state unknown)"}</option>)}
+                {amb.candidates.map((k) => <option key={k.id} value={k.id}>{up(k.name)}{k.district ? `, ${up(k.district)}` : ""}{k.state ? `, ${up(k.state)}` : " (state unknown)"}</option>)}
               </select>
               <div className="flex gap-2">
                 <Button size="sm" disabled={busy || !amb.pick} onClick={confirmAmbiguous}>Confirm & assign</Button>
@@ -313,7 +314,7 @@ function CitiesPage() {
               <ul className="space-y-1">
                 {dupes.data.map((c) => (
                   <li key={c.id} className="flex flex-wrap items-center gap-2">
-                    <span className="mr-auto">{c.name} <span className="text-muted-foreground">({place(c)})</span>{zoneByCity.has(c.id) && <span className="text-muted-foreground"> · {zoneName(zoneByCity.get(c.id))}</span>}</span>
+                    <span className="mr-auto">{up(c.name)} <span className="text-muted-foreground">({place(c)})</span>{zoneByCity.has(c.id) && <span className="text-muted-foreground"> · {zoneName(zoneByCity.get(c.id))}</span>}</span>
                     {!zoneByCity.has(c.id) && zones.length > 0 && (
                       <select aria-label={`Zone for ${c.name}`} className={sel} defaultValue="" onChange={(e) => e.target.value && assign([c.id], e.target.value)}>
                         <option value="">Assign zone…</option>{zones.map((z) => <option key={z.id} value={z.id}>{z.name}</option>)}
@@ -385,7 +386,7 @@ function CitiesPage() {
               {(search.data ?? []).map((c) => (
                 <tr key={c.id} className="border-t">
                   <td className="p-2"><input type="checkbox" aria-label={`Select ${c.name}`} checked={picked.has(c.id)} onChange={(e) => setPicked(toggle(picked, c.id, e.target.checked))} /></td>
-                  <td className="p-2">{c.name}{c.source === "user" && <span className="ml-2 text-xs text-muted-foreground">(added by sellers)</span>}</td>
+                  <td className="p-2">{up(c.name)}{c.source === "user" && <span className="ml-2 text-xs text-muted-foreground">(added by sellers)</span>}</td>
                   <td className="p-2 text-muted-foreground">{place(c)}</td>
                   <td className="p-2">{zoneName(zoneByCity.get(c.id)) ?? <span className="text-muted-foreground">Not set</span>}</td>
                 </tr>

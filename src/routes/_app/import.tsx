@@ -1,3 +1,4 @@
+import { up } from "@/lib/text";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -279,7 +280,7 @@ function ImportPage() {
                     <td className="p-2">{r.type ?? "—"}</td>
                     {r.weights.map((w, j) => <td key={j} className="p-2">{w ?? ""}</td>)}
                     <td className="p-2 font-medium">{r.type && r.billing != null ? fmtWeight(r.type, r.billing) : "—"}</td>
-                    <td className="p-2">{r.service}</td><td className="p-2">{r.destination}</td>
+                    <td className="p-2">{r.service}</td><td className="p-2">{up(r.destination)}</td>
                     <td className="p-2 whitespace-nowrap">{r.priced ? `${inr(r.priced.rate)} · ${[r.priced.zone, r.priced.slab].filter(Boolean).join(" · ")}` : "—"}{r.amount != null && r.priced && r.amount !== r.priced.rate ? <span className="block text-xs text-muted-foreground">sheet: {inr(r.amount)}</span> : null}</td>
                     <td className="p-2">{r.error ? <span className="text-destructive">{r.error}</span> : r.review ? <span className="text-destructive">Needs review: {r.review}</span> : r.dup ? <span className="text-muted-foreground">{r.dup === "saved" ? "Duplicate (already imported)" : "Duplicate in file"}</span> : "OK"}</td>
                   </tr>
