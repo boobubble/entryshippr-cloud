@@ -33,3 +33,17 @@ describe("weights", () => {
     expect([m.w1, m.w2, m.w3, m.w4].map((i) => colLetter(i!))).toEqual(["F", "G", "H", "T"]);
   });
 });
+
+describe("1308 format", async () => {
+  const { rowWeights } = await import("@/lib/import-weights");
+  const h = ["documentNo","shipmentType","travelBy","deliveryPromise","bookingType","weight","volumetricWeight","auditedWeight","child_shipments","bookingDate","senderName","basicCharge","mode","senderPhone","senderAddress","receiverName","receiverCity","receiverPhone","receiverAddress","totalWeight"];
+  const m = detectMapping(h);
+  it("maps headers", () => {
+    expect(m.format).toBe("1308");
+    expect([m.awb, m.type, m.date, m.client, m.destination, m.service, m.w1, m.w2, m.w3, m.w4]).toEqual([0, 1, 9, 10, 16, 3, 5, 6, 7, 19]);
+  });
+  it("NON-DOX grams -> kg, DOX stays grams", () => {
+    expect(billingWeight(rowWeights(m, "NON-DOX", [10000, 0, 10000, 10]))).toBe(10);
+    expect(billingWeight(rowWeights(m, "DOX", [50, 0, 0, 50]))).toBe(50);
+  });
+});

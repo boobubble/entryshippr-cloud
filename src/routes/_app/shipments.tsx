@@ -20,7 +20,7 @@ export const Route = createFileRoute("/_app/shipments")({
   component: Shipments,
 });
 
-type Row = { id: string; awb: string; ship_date: string; destination: string | null; service: string; weight: number; pieces: number; amount: number; invoice_id: string | null; client_id: string; clients: { name: string } | null; pricing_status?: string; review_reason?: string | null; shipment_type?: string | null; billing_weight?: number | null; weight_unit?: string | null };
+type Row = { id: string; awb: string; ship_date: string; destination: string | null; service: string; weight: number; pieces: number; amount: number; invoice_id: string | null; client_id: string; clients: { name: string; address: string | null; phone: string | null; email: string | null; state: string | null } | null; rate_zone?: string | null; pricing_status?: string; review_reason?: string | null; shipment_type?: string | null; billing_weight?: number | null; weight_unit?: string | null };
 type Form = { awb: string; client_id: string; ship_date: string; destination: string; service: "Standard" | "Fast"; type: "DOX" | "NON-DOX"; weight: string; pieces: string };
 
 function Shipments() {
@@ -36,7 +36,7 @@ function Shipments() {
   const { data: rows = [] } = useQuery({
     queryKey: ["shipments", filter],
     queryFn: async () => {
-      let q = supabase.from("shipments").select("*, clients(name)").order("ship_date", { ascending: false }).limit(500);
+      let q = supabase.from("shipments").select("*, clients(name, address, phone, email, state)").order("ship_date", { ascending: false }).limit(500);
       if (filter.q) q = q.ilike("awb", `%${filter.q}%`);
       if (filter.client) q = q.eq("client_id", filter.client);
       if (filter.from) q = q.gte("ship_date", filter.from);
@@ -85,9 +85,28 @@ function Shipments() {
     XLSX.writeFile(wb, `shipments-${today}.xlsx`);
   }
 
+  // Billing export in the 130893 layout (same headers and order). Values EntrySetu does not store stay blank.
+  function exportBilling() {
+    const head = ["Date", "Consignment No.", "Customer Name", "Station", "Wt. (Gms)", "Amount", "Remarks", "RateZone", "Customer Address Line 1", "Customer Address Line 2", "Customer City", "Customer Phone", "Customer Mobile", "Customer Email", "Contact Person", "Consignment ID", "AccountID", "Pincode", "State", "ServiceType", "To", "Address Line 1", "Address Line 2", "Contact No. 1", "2", "Sender Mobile", "Value of Goods", "Pcs"];
+    const dmy = (d: string) => d.split("-").reverse().join("-");
+    const wt = (r: Row) => r.shipment_type === "NON-DOX" ? `${+Number(r.weight).toFixed(3)} Kgs` : +Number(r.weight).toFixed(3);
+    const body = rows.map((r) => {
+      const c = r.clients; const review = r.pricing_status === "needs_review";
+      const v: Record<string, string | number> = {
+        "Date": dmy(r.ship_date), "Consignment No.": r.awb, "Customer Name": up(c?.name), "Station": up(r.destination),
+        "Wt. (Gms)": wt(r), "Amount": review ? "" : Number(r.amount), "Remarks": review ? `Needs review: ${r.review_reason ?? ""}` : "",
+        "RateZone": review ? "" : (r.rate_zone ?? ""), "Customer Address Line 1": c?.address ?? "", "Customer Mobile": c?.phone ?? "",
+        "Customer Email": c?.email ?? "", "State": up(c?.state), "ServiceType": r.shipment_type === "DOX" ? "DOX" : r.service, "Pcs": r.pieces,
+      };
+      return head.map((h) => v[h] ?? "");
+    });
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([head, ...body]), "Sheet1");
+    XLSX.writeFile(wb, `billing-${today}.xlsx`);
+  }
+
   return (
     <div>
-      <PageHead title="Shipments"><Button variant="outline" onClick={exportXlsx} disabled={!rows.length}>Export Excel</Button></PageHead>
+      <PageHead title="Shipments"><div className="flex gap-2"><Button variant="outline" onClick={exportXlsx} disabled={!rows.length}>Export Excel</Button><Button onClick={exportBilling} disabled={!rows.length}>Billing export</Button></div></PageHead>
       <form onSubmit={add} className="mb-6 grid gap-3 rounded-xl border bg-card p-4 md:grid-cols-8 md:items-end">
         <div><Label>AWB</Label><Input required value={f.awb} onChange={(e) => setF({ ...f, awb: e.target.value })} /></div>
         <div className="md:col-span-2"><Label>Client</Label>
