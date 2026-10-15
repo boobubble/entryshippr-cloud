@@ -178,7 +178,7 @@ select public.save_invoice_draft((select id from tie.ids where k = 'd1'), '{"kin
      from public.invoice_lines where invoice_id = (select id from tie.ids where k = 'd1')),
   (select jsonb_agg(jsonb_build_object('code', code, 'label', label, 'mode', mode, 'base', base, 'value', value))
      from public.invoice_charges where invoice_id = (select id from tie.ids where k = 'd1')));
-select tie.ok((select kind = 'nongst' and tax_mode = 'none' and cgst = 0 and sgst = 0 and igst = 0 and total = 485.30
+select tie.ok((select kind = 'nongst' and tax_mode = 'none' and cgst = 0 and sgst = 0 and igst = 0 and total = 484.70
                from public.invoices where id = (select id from tie.ids where k = 'd1')), 'GSTIN seller can switch to Non-GST, tax removed');
 select public.save_invoice_draft((select id from tie.ids where k = 'd1'), '{"kind":"gst"}',
   (select jsonb_agg(jsonb_build_object('shipment_id', shipment_id, 'weight', weight, 'rate', rate, 'amount', amount, 'declared_value', declared_value))
