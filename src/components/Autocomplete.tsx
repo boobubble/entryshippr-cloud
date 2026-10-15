@@ -2,7 +2,7 @@ import { useEffect, useId, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { normCity } from "@/lib/cities";
-import { nameKey, up } from "@/lib/text";
+import { clientDetails, groupClients, nameKey, up } from "@/lib/text";
 import { Input } from "@/components/ui/input";
 
 const useDebounced = (v: string, ms = 200) => {
@@ -45,26 +45,36 @@ export function CityInput({ value, onChange, required, placeholder, id }: {
   );
 }
 
-type ClientLite = { id: string; name: string };
+type ClientLite = { id: string; name: string; is_gst?: boolean; gstin?: string | null; state?: string | null; phone?: string | null };
 
 /** Client picker with type-ahead over the signed-in seller's own clients (the list is already scoped by RLS). */
 export function ClientInput({ clients, value, onChange, required }: {
   clients: ClientLite[]; value: string; onChange: (id: string) => void; required?: boolean;
 }) {
   const listId = useId();
+  const groups = groupClients(clients);
+  // Same-name clients get their billing details in the label so the seller picks the exact record.
+  const label = (c: ClientLite) => ((groups.get(nameKey(c.name))?.length ?? 0) > 1 ? `${up(c.name)} — ${clientDetails(c)}` : up(c.name));
+  const resolve = (t: string) => {
+    const exact = clients.find((c) => nameKey(label(c)) === nameKey(t));
+    if (exact) return exact;
+    const g = groups.get(nameKey(t));
+    return g?.length === 1 ? g[0] : undefined;
+  };
   const current = clients.find((c) => c.id === value);
-  const [text, setText] = useState(current ? up(current.name) : "");
-  useEffect(() => { if (current) setText(up(current.name)); }, [value, current]);
+  const [text, setText] = useState(current ? label(current) : "");
+  useEffect(() => { if (current) setText(label(current)); }, [value, current?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const several = !current && (groups.get(nameKey(text))?.length ?? 0) > 1;
   return (
     <>
       <Input list={listId} className="uppercase" autoComplete="off" required={required} placeholder="Type to search…" value={text}
         onChange={(e) => {
           setText(e.target.value);
-          const hit = clients.find((c) => nameKey(c.name) === nameKey(e.target.value));
-          onChange(hit?.id ?? "");
+          onChange(resolve(e.target.value)?.id ?? "");
         }}
-        onBlur={() => { if (!clients.some((c) => nameKey(c.name) === nameKey(text))) setText(current ? up(current.name) : ""); }} />
-      <datalist id={listId}>{clients.map((c) => <option key={c.id} value={up(c.name)} />)}</datalist>
+        onBlur={() => { if (!resolve(text) && !several) setText(current ? label(current) : ""); }} />
+      <datalist id={listId}>{clients.map((c) => <option key={c.id} value={label(c)} />)}</datalist>
+      {several && <p className="mt-1 text-xs text-destructive">Several clients are named {up(text)} — choose the exact one from the list.</p>}
     </>
   );
 }
