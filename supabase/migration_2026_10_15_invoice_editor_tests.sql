@@ -95,6 +95,7 @@ create table tie.c as select
 create table tie.ids (k text primary key, id uuid);
 grant select on tie.c to authenticated;
 grant select, insert, update on tie.ids to authenticated;
+grant select on tie.c, tie.ids to service_role;
 
 -- C. Create draft (no number used, shipments reserved, lines copied)
 set local role authenticated;
