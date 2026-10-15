@@ -23,7 +23,7 @@ describe("Customer invoice layout", () => {
     expect([...doc.querySelectorAll("thead th")].map((th) => th.textContent)).toEqual(["Date", "AWB", "Receiver Name", "Destination", "Service", "Weight", "Amount"]);
     expect(doc.body.textContent).not.toContain("Rate applied");
     expect(doc.querySelector("header h1")?.textContent).toBe("Seller business");
-    expect(doc.querySelector("tbody tr td:nth-child(6)")?.textContent).toBe("50 gDOX");
+    expect(doc.querySelector("tbody tr td:nth-child(6)")?.textContent).toBe("50 g DOX");
   });
   it("shows only an actual receiver/consignee name, otherwise a dash", () => {
     expect(documentFor().querySelector("tbody tr td:nth-child(3)")?.textContent).toBe("—");
