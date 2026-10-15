@@ -41,6 +41,15 @@ function Invoices() {
     },
   });
 
+  const [tab, setTab] = useState<"gst" | "nongst" | "all">("gst");
+  const [status, setStatus] = useState<"active" | "issued" | "draft" | "cancelled" | "all">("active");
+  const [desc, setDesc] = useState(true);
+  const shown = useMemo(() => {
+    const rows = invoices.filter((i) => (tab === "all" || i.kind === tab) &&
+      (status === "all" || (status === "active" ? i.status !== "cancelled" : i.status === status)));
+    return [...rows].sort((a, b) => { const c = compareInvoices(a, b); return desc ? -c : c; });
+  }, [invoices, tab, status, desc]);
+
   const { data: eligible = [] } = useQuery({
     queryKey: ["eligible-shipments", f.client_id, f.from, f.to],
     enabled: !!f.client_id && !!f.from && !!f.to,
@@ -121,11 +130,23 @@ function Invoices() {
           </div>
         )}
       </form>
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <div className="inline-flex rounded-md border bg-card p-0.5" role="tablist" aria-label="Invoice series">
+          {([["gst", "GST"], ["nongst", "Non-GST"], ["all", "All"]] as const).map(([k, l]) => (
+            <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => setTab(k)}
+              className={`rounded px-3 py-1 text-sm ${tab === k ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}>{l}</button>
+          ))}
+        </div>
+        <select aria-label="Status filter" className="h-8 rounded-md border bg-background px-2 text-sm" value={status} onChange={(e) => setStatus(e.target.value as typeof status)}>
+          <option value="active">Drafts & issued</option><option value="issued">Issued</option><option value="draft">Drafts</option><option value="cancelled">Cancelled</option><option value="all">All statuses</option>
+        </select>
+        <Button type="button" size="sm" variant="outline" onClick={() => setDesc(!desc)}>{desc ? "Latest first ↓" : "Oldest first ↑"}</Button>
+      </div>
       <div className="overflow-x-auto rounded-xl border bg-card">
         <table className="w-full text-sm">
           <thead className="bg-muted text-left"><tr><th className="p-3">Invoice</th><th className="p-3">Date</th><th className="p-3">Client</th><th className="p-3">Type</th><th className="p-3">Status</th><th className="p-3 text-right">Total</th><th /></tr></thead>
           <tbody>
-            {invoices.map((i) => (
+            {shown.map((i) => (
               <tr key={i.id} className="border-t">
                 <td className="p-3">{i.status === "draft"
                   ? <Link to="/invoices/edit/$id" params={{ id: i.id }} className="text-primary underline">Draft</Link>
@@ -141,7 +162,7 @@ function Invoices() {
                 </td>
               </tr>
             ))}
-            {!invoices.length && <tr><td colSpan={7} className="p-6 text-center text-muted-foreground">No invoices yet.</td></tr>}
+            {!shown.length && <tr><td colSpan={7} className="p-6 text-center text-muted-foreground">{invoices.length ? "No invoices match this filter." : "No invoices yet."}</td></tr>}
           </tbody>
         </table>
       </div>
