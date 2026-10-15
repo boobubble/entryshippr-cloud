@@ -7,6 +7,11 @@
 begin;
 create schema tam;
 grant usage on schema tam to authenticated, service_role;
+-- Every passing assertion is recorded; the final block requires the exact expected count,
+-- so the PASS message can only appear when every assertion ran and succeeded.
+create table tam.log (n serial, label text);
+grant insert, select on tam.log to authenticated, service_role;
+grant usage on sequence tam.log_n_seq to authenticated, service_role;
 create function tam.expect_fail(q text, label text, codes text[], msg_like text default null)
 returns void language plpgsql as $$
 declare v_state text; v_msg text;
@@ -16,12 +21,13 @@ begin
     get stacked diagnostics v_state = returned_sqlstate, v_msg = message_text;
     if not (v_state = any(codes)) then raise exception 'FAIL: % — wrong error % (%), expected %', label, v_state, v_msg, codes; end if;
     if msg_like is not null and v_msg not ilike msg_like then raise exception 'FAIL: % — message "%" not like "%"', label, v_msg, msg_like; end if;
+    insert into tam.log (label) values (label);
     raise notice 'PASS (blocked %) %', v_state, label; return;
   end;
   raise exception 'FAIL: % was allowed', label;
 end $$;
 create function tam.ok(cond boolean, label text) returns void language plpgsql as $$
-begin if cond is true then raise notice 'PASS %', label; else raise exception 'FAIL: % (got %)', label, cond; end if; end $$;
+begin if cond is true then insert into tam.log (label) values (label); raise notice 'PASS %', label; else raise exception 'FAIL: % (got %)', label, cond; end if; end $$;
 create function tam.as_user(uid uuid) returns void language plpgsql as $$
 begin
   perform set_config('request.jwt.claims', json_build_object('sub', uid, 'role', 'authenticated')::text, true);
@@ -89,10 +95,11 @@ select tam.ok((select awb = 'BOS000106' from public.next_awb(null)), 'default se
 insert into public.awb_series (client_id, prefix, start_number, digits) select c2, '', 7, 4 from tam.c;
 select tam.ok((select awb = '0007' and scope = 'client' from public.next_awb((select c2 from tam.c))), 'client series preferred, numeric only');
 select tam.ok((select awb = 'BOS000106' from public.next_awb((select c1 from tam.c))), 'other client keeps default series');
--- manual override + duplicate protection (the unique constraint is what stops concurrent duplicates)
+-- manual override + duplicate protection. NOTE: this is a SEQUENTIAL check inside one session.
+-- Real two-session concurrency is tested separately by scripts/awb_concurrency_check.sh.
 insert into public.shipments (client_id, awb, destination, weight, amount) select c2, 'MY-OWN-1', 'MUMBAI', 1, 50 from tam.c;
 select tam.expect_fail($q$insert into public.shipments (client_id, awb, destination, weight, amount) select c2, '0007', 'MUMBAI', 1, 50 from tam.c; insert into public.shipments (client_id, awb, destination, weight, amount) select c1, '0007', 'MUMBAI', 1, 50 from tam.c$q$,
-  'same AWB twice (second save of a concurrent pair)', array['23505']);
+  'same AWB saved twice (sequential, same session)', array['23505']);
 select tam.ok((select awb = '0007' from public.next_awb((select c2 from tam.c))), 'failed save consumed no number');
 insert into public.shipments (client_id, awb, destination, weight, amount) select c2, '0007', 'MUMBAI', 1, 50 from tam.c;
 select tam.ok((select awb = '0008' from public.next_awb((select c2 from tam.c))), 'suggestion moves only after a successful save');
@@ -105,6 +112,19 @@ select tam.expect_fail($q$insert into public.awb_series (client_id, prefix, star
 update public.awb_series set start_number = 9998, digits = 4 where client_id = (select c2 from tam.c);
 insert into public.shipments (client_id, awb, destination, weight, amount) select c2, '9999', 'MUMBAI', 1, 50 from tam.c;
 select tam.expect_fail($q$select * from public.next_awb((select c2 from tam.c))$q$, 'series used up', array['P0001'], '%used up%');
+-- prefix with / and -, exact digit count, non-numeric tails, 18-digit leading zeros, inactive client series
+update public.awb_series set prefix = 'BOS/26-', start_number = 1, digits = 5 where client_id is null;
+insert into public.shipments (client_id, awb, destination, weight, amount) select c1, x, 'MUMBAI', 1, 50 from tam.c,
+  unnest(array['BOS/26-00041', 'BOS/26-000999', 'BOS/26-0004X', 'BOS/26-ABCDE', 'BOS/2600050', 'bos/26-00077']) x;
+select tam.ok((select awb = 'BOS/26-00042' from public.next_awb((select c1 from tam.c))), 'prefix with / and - matched literally, other lengths/case/tails ignored');
+update public.awb_series set prefix = 'L', start_number = 0, digits = 18 where client_id is null;
+select tam.ok((select awb = 'L000000000000000000' from public.next_awb(null)), '18 digits keep every leading zero');
+insert into public.shipments (client_id, awb, destination, weight, amount) select c1, 'L000000000000000000', 'MUMBAI', 1, 50 from tam.c;
+select tam.ok((select awb = 'L000000000000000001' from public.next_awb(null)), '18-digit series increments exactly');
+update public.awb_series set active = false where client_id = (select c2 from tam.c);
+select tam.ok((select scope = 'default' and awb = 'L000000000000000001' from public.next_awb((select c2 from tam.c))), 'inactive client series falls back to default');
+update public.awb_series set active = true where client_id = (select c2 from tam.c);
+select tam.expect_fail($q$select * from public.next_awb((select c2 from tam.c))$q$, 'reactivated client series overrides default again (still used up)', array['P0001'], '%used up%');
 -- tenant isolation
 select tam.expect_fail($q$insert into public.awb_series (client_id, prefix, start_number, digits) select cb, 'Z', 1, 3 from tam.c$q$, 'series on another seller''s client', array['23503', '42501']);
 select tam.as_user('00000000-0000-0000-0000-00000000a5b1');
