@@ -264,17 +264,46 @@ alter table public.shipments add constraint shipments_draft_or_billed_chk check 
 create index if not exists shipments_draft_idx on public.shipments (owner_id, draft_invoice_id) where draft_invoice_id is not null;
 -- No INSERT/UPDATE grant on draft_invoice_id: only the functions below set it.
 
+-- Reserved (draft) shipments may change in exactly two ways:
+--   1. FINALIZE: draft_invoice_id = X -> NULL and invoice_id NULL -> X, in one
+--      row update, only while finalize_invoice(X) has armed the transaction-local
+--      flag 'entrysetu.finalizing' = X, only when invoice X is already 'issued'
+--      for the same owner, and with no other column changed.
+--   2. RELEASE: draft_invoice_id -> NULL (invoice_id stays NULL) by trusted
+--      functions only (save/discard draft, ON DELETE SET NULL), never by API users.
+-- Everything else on a reserved shipment is blocked, for every role.
 create or replace function public.shipments_draft_guard()
 returns trigger language plpgsql set search_path = '' as $$
+declare v_ok boolean;
 begin
-  if tg_op = 'UPDATE' and old.invoice_id is null and new.invoice_id is not null and new.draft_invoice_id is not null then
+  -- Never link a shipment to an issued invoice while it is still reserved.
+  if tg_op = 'UPDATE' and new.invoice_id is not null and new.draft_invoice_id is not null then
     raise exception 'Shipment % is on a draft invoice. Finalize or discard that draft first.', old.awb using errcode = 'P0001';
   end if;
-  if current_user in ('authenticated', 'anon') and old.draft_invoice_id is not null then
+  if old.draft_invoice_id is null then
+    return coalesce(new, old);
+  end if;
+
+  if tg_op = 'UPDATE' and old.invoice_id is null and new.invoice_id is not null then
+    -- Path 1: finalize hand-over
+    select new.invoice_id = old.draft_invoice_id
+       and new.draft_invoice_id is null
+       and coalesce(current_setting('entrysetu.finalizing', true), '') = old.draft_invoice_id::text
+       and exists (select 1 from public.invoices i
+                    where i.id = old.draft_invoice_id and i.owner_id = old.owner_id and i.status = 'issued')
+       and (to_jsonb(new) - 'invoice_id' - 'draft_invoice_id' - 'updated_at')
+         = (to_jsonb(old) - 'invoice_id' - 'draft_invoice_id' - 'updated_at')
+      into v_ok;
+    if v_ok then return new; end if;
+    raise exception 'Shipment % is on a draft invoice and can only be billed by finalizing that draft.', old.awb
+      using errcode = 'P0001';
+  end if;
+
+  if current_user in ('authenticated', 'anon') then
     raise exception 'Shipment % is on a draft invoice. Remove it from the draft or discard the draft first.', old.awb
       using errcode = 'P0001';
   end if;
-  return coalesce(new, old);
+  return coalesce(new, old);   -- Path 2 / trusted maintenance by editor functions
 end $$;
 drop trigger if exists shipments_draft_guard on public.shipments;
 create trigger shipments_draft_guard before update or delete on public.shipments
