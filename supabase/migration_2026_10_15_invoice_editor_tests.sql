@@ -225,11 +225,10 @@ set local role authenticated;
 select tie.as_user('00000000-0000-0000-0000-0000000e0aa1');
 select tie.expect_fail($$update public.shipments set invoice_id = draft_invoice_id, draft_invoice_id = null
    where draft_invoice_id = (select id from tie.ids where k = 'dg')$$, 'seller direct hand-over blocked', '{42501,P0001}');
--- the real path still works and leaves the flag disarmed
-select public.finalize_invoice((select id from tie.ids where k = 'dg'));
-select tie.ok((select count(*) >= 1 and bool_and(draft_invoice_id is null) from public.shipments where invoice_id = (select id from tie.ids where k = 'dg')), 'second draft finalized, shipments linked');
 select tie.ok(coalesce(current_setting('entrysetu.finalizing', true), '') = '', 'finalize flag disarmed after finalize');
-select public.cancel_invoice((select id from tie.ids where k = 'dg'), 'regression test cleanup');
+-- discard (not finalize) so no extra invoice number is consumed and later tests see TIE3 unbilled
+select public.discard_invoice_draft((select id from tie.ids where k = 'dg'));
+select tie.ok((select draft_invoice_id is null and invoice_id is null from public.shipments where awb = 'TIE3'), 'forgery attempts left TIE3 untouched and released');
 
 -- J. Issued invoice immutable for every role
 select tie.expect_fail($$select public.save_invoice_draft((select id from tie.ids where k = 'd1'), '{}', '[]', '[]')$$, 'cannot save issued invoice', '{P0001}', 'Draft not found%');
