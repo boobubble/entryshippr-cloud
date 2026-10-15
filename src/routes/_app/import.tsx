@@ -257,7 +257,7 @@ function ImportPage() {
     <div>
       <PageHead title="Excel import"><Button variant="outline" onClick={template}>Download template</Button></PageHead>
       <div className="rounded-xl border-2 border-dashed bg-card p-8 text-center">
-        <p className="mb-3 text-sm text-muted-foreground">Upload any courier .xlsx, .xls or .csv sheet. You can match its columns below. Weights are read from columns F, G, H and T by default: grams for DOX, kilograms for NON-DOX. The highest one is the billing weight. Prices come from your <Link to="/rate-cards" className="text-primary underline">rate cards</Link> using the zone you set for each destination city.</p>
+        <p className="mb-3 text-sm text-muted-foreground">Upload any courier .xlsx, .xls or .csv sheet. You can match its columns below. Weights are read from columns F, G, H and T by default: grams for DOX, kilograms for NON-DOX. The highest one is the billing weight. Prices come from each client's <Link to="/rate-cards" className="text-primary underline">rate card</Link> using the zone you set for each destination city. You don't need rate cards to import: shipments without a rate are saved as Needs Review (Rate pending, ₹0), are never invoiced, and are priced automatically once you add that client's rate card.</p>
         <input type="file" accept=".xlsx,.xls,.csv" onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f); e.target.value = ""; }} className="mx-auto block text-sm" />
       </div>
 
