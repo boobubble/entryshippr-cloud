@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { useZones, errMsg } from "@/lib/hooks";
-import { normCity, registerCities } from "@/lib/cities";
+import { normCity, registerCities, type CityRes, type Candidate } from "@/lib/cities";
 import { CityZoneDialog } from "@/components/CityZoneDialog";
 import { StateSelect } from "@/components/StateSelect";
 import { PageHead, appHead } from "@/components/PageHead";
@@ -17,6 +17,7 @@ export const Route = createFileRoute("/_app/cities")({
 });
 
 const sel = "h-9 rounded-md border bg-background px-2 text-sm";
+const NEW_ZONE = "__new";
 type City = { id: string; name: string; state: string | null; district: string | null; source: string };
 type Mapping = { city_id: string; zone_id: string; cities: { name: string; state: string | null; district: string | null } | null };
 const place = (c: { state: string | null; district?: string | null } | null | undefined) =>
@@ -35,7 +36,10 @@ function CitiesPage() {
   const [dialog, setDialog] = useState(false);
   const [newZone, setNewZone] = useState("");
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
-  const [nc, setNc] = useState({ name: "", state: "", district: "" });
+  const [nc, setNc] = useState({ name: "", zone: "", state: "", district: "" });
+  const [ncZoneName, setNcZoneName] = useState("");
+  const [adv, setAdv] = useState(false);
+  const [amb, setAmb] = useState<{ input: string; zoneId: string; candidates: Candidate[]; pick: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
   const mappings = useQuery({
@@ -127,16 +131,75 @@ function CitiesPage() {
     toast.success(`Zone "${name}" deleted`); if (zoneFilter === id) setZoneFilter(""); refresh();
   }
 
+  const resetAdd = () => { setNc({ name: "", zone: "", state: "", district: "" }); setNcZoneName(""); setAmb(null); setAdv(false); };
+
+  // Assigns a resolved city to the chosen zone (upsert on owner_id,city_id: moving never duplicates).
+  async function finishAdd(cityId: string, label: string, zoneId: string) {
+    const prev = zoneByCity.get(cityId);
+    const { error } = await supabase.from("seller_city_zones")
+      .upsert({ city_id: cityId, zone_id: zoneId, updated_at: new Date().toISOString() }, { onConflict: "owner_id,city_id" });
+    if (error) throw error;
+    const to = zoneName(zoneId) ?? "the zone";
+    toast.success(prev && prev !== zoneId ? `${label} moved from ${zoneName(prev) ?? "another zone"} to ${to}` : `${label} assigned to ${to}. Waiting shipments were re-priced.`);
+    setQ(label.split(",")[0] ?? ""); resetAdd(); refresh();
+  }
+
+  async function ensureZone(): Promise<string> {
+    if (nc.zone !== NEW_ZONE) return nc.zone;
+    const name = ncZoneName.trim();
+    const { data, error } = await supabase.from("zones").insert({ name, sort_order: zones.length }).select("id").single();
+    if (error) throw error.code === "23505" ? new Error("A zone with this name already exists") : error;
+    setNc((p) => ({ ...p, zone: data.id })); setNcZoneName("");
+    await qc.invalidateQueries({ queryKey: ["zones"] });
+    return data.id as string;
+  }
+
   async function addCity() {
     if (normCity(nc.name).length < 2) { toast.error("Enter a city name"); return; }
-    if (!nc.state) { toast.error("Choose the state"); return; }
+    if (!nc.zone) { toast.error("Choose your zone"); return; }
+    if (nc.zone === NEW_ZONE && !ncZoneName.trim()) { toast.error("Enter the new zone name"); return; }
+    if (adv && nc.district.trim() && !nc.state) { toast.error("Choose the state for this district"); return; }
     setBusy(true);
-    const { data, error } = await supabase.rpc("add_city", { p_name: nc.name.trim(), p_state: nc.state, p_district: nc.district.trim() || null });
-    setBusy(false);
-    if (error) { toast.error(errMsg(error)); return; }
-    const r = (data as { city_id: string; existed: boolean; name: string; state: string }[])[0];
-    toast.success(r?.existed ? `${r.name}, ${r.state} already exists — using it` : `${r?.name} added to the city list`);
-    setNc({ name: "", state: "", district: "" }); setQ(r?.name ?? ""); refresh();
+    try {
+      const zoneId = await ensureZone();
+      if (adv && nc.state) {
+        const { data, error } = await supabase.rpc("add_city", { p_name: nc.name.trim(), p_state: nc.state, p_district: nc.district.trim() || null });
+        if (error) throw error;
+        const r = (data as { city_id: string; existed: boolean; name: string; state: string; district: string | null }[])[0];
+        if (!r) throw new Error("City could not be added");
+        await finishAdd(r.city_id, [r.name, r.district, r.state].filter(Boolean).join(", "), zoneId);
+        return;
+      }
+      const { data, error } = await supabase.rpc("register_cities", { p_names: [nc.name.trim()] });
+      if (error) throw error;
+      const r = (data as CityRes[])[0];
+      if (!r) throw new Error("City could not be checked");
+      if (r.status === "invalid") { toast.error(r.reason ?? "Not a valid city name"); return; }
+      if (r.status === "ambiguous") {
+        setAmb({ input: r.input, zoneId, candidates: r.candidates ?? [], pick: "" });
+        toast.message("Several cities share this name — choose which one you mean");
+        return;
+      }
+      if (!r.city_id) {
+        // unknown city and no active plan: nothing could be registered
+        toast.error("This city isn't in the list yet, and your plan is not active, so it can't be added. Renew your plan or pick an existing city.");
+        return;
+      }
+      await finishAdd(r.city_id, [r.city_name ?? nc.name.trim(), r.state].filter(Boolean).join(", "), zoneId);
+    } catch (e) { toast.error(errMsg(e)); } finally { setBusy(false); }
+  }
+
+  // Ambiguous name: explicit choice stored as the seller's own alias (seller_city_aliases), never guessed.
+  async function confirmAmbiguous() {
+    if (!amb?.pick) { toast.error("Choose which city you mean"); return; }
+    const c = amb.candidates.find((k) => k.id === amb.pick);
+    setBusy(true);
+    try {
+      const { error } = await supabase.from("seller_city_aliases")
+        .upsert({ alias_norm: normCity(amb.input), city_id: amb.pick }, { onConflict: "owner_id,alias_norm" });
+      if (error) throw error;
+      await finishAdd(amb.pick, [c?.name ?? amb.input, c?.district, c?.state].filter(Boolean).join(", "), amb.zoneId);
+    } catch (e) { toast.error(errMsg(e)); } finally { setBusy(false); }
   }
 
   const notReady = mappings.isError || search.isError;
