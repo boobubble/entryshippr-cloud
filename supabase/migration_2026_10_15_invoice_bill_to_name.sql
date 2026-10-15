@@ -126,12 +126,12 @@ begin
   -- rejected. Typing exactly the client's current name clears the custom flag so the
   -- draft follows that client again; anything else is kept through every recalc.
   if p_header ? 'bill_to_name' then
-    v_name := upper(regexp_replace(btrim(coalesce(p_header->>'bill_to_name', '')), '\s+', ' ', 'g'));
+    v_name := upper(btrim(regexp_replace(coalesce(p_header->>'bill_to_name', ''), '\s+', ' ', 'g')));
     if v_name = '' then raise exception 'Bill To Name cannot be blank' using errcode = 'P0001'; end if;
     if char_length(v_name) > 200 then
       raise exception 'Bill To Name is too long (max 200 characters)' using errcode = 'P0001';
     end if;
-    select upper(regexp_replace(btrim(c.name), '\s+', ' ', 'g')) into v_client_name
+    select upper(btrim(regexp_replace(c.name, '\s+', ' ', 'g'))) into v_client_name
       from public.clients c where c.id = v.client_id and c.owner_id = v_uid;
     update public.invoices
        set bill_to_name = v_name, bill_to_name_custom = (v_name is distinct from v_client_name)
