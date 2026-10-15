@@ -80,18 +80,18 @@ begin
 end $$;
 
 do $$
-declare r record;
+declare r record; v_f regprocedure;
 begin
   for r in select p.oid::regprocedure f, p.proconfig from pg_proc p join pg_namespace n on n.oid = p.pronamespace
             where n.nspname = 'public' and p.prosecdef loop
     if r.proconfig is null or not ('search_path=""' = any(r.proconfig)) then
       raise exception 'FAIL: SECURITY DEFINER % has search_path %', r.f, r.proconfig; end if;
   end loop;
-  foreach r.f in array array['public.activate_payment(text,text,bigint)','public.record_webhook_event(text,text)',
+  foreach v_f in array array['public.activate_payment(text,text,bigint)','public.record_webhook_event(text,text)',
                              'public.admin_set_access(uuid,text,public.plan_kind)','public.shipment_rate(uuid,uuid,text,text,text,numeric)',
                              'public.shipments_apply_rate()','public.zones_normalise()','public.handle_new_user()']::regprocedure[] loop
-    if has_function_privilege('authenticated', r.f, 'EXECUTE') or has_function_privilege('anon', r.f, 'EXECUTE') then
-      raise exception 'FAIL: % executable by users', r.f; end if;
+    if has_function_privilege('authenticated', v_f, 'EXECUTE') or has_function_privilege('anon', v_f, 'EXECUTE') then
+      raise exception 'FAIL: % executable by users', v_f; end if;
   end loop;
   if has_function_privilege('anon', 'public.save_rate_card(uuid,text,text,jsonb)', 'EXECUTE') then raise exception 'FAIL: anon can save rate cards'; end if;
   raise notice 'PASS SECURITY DEFINER functions pinned to empty search_path; privileged ones not user-callable';
