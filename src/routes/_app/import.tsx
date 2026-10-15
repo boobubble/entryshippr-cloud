@@ -1,73 +1,158 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import { supabase, inr } from "@/lib/supabase";
 import { useClients, useRateCards, calcAmount, errMsg } from "@/lib/hooks";
 import { PageHead, appHead } from "@/components/PageHead";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import {
+  FIELD_LABELS, REQUIRED, billingWeight, colLetter, detectMapping, fmtWeight, parseType, parseWeight, toKg, unitOf,
+  type FieldKey, type Mapping, type ShipmentType,
+} from "@/lib/import-weights";
 
 export const Route = createFileRoute("/_app/import")({
-  head: appHead("Excel import", "Upload booking sheets and turn them into shipments."),
+  head: appHead("Excel import", "Upload courier booking sheets, map columns and turn them into shipments."),
   component: ImportPage,
 });
 
-const FIELDS = { awb: ["awb", "awb no", "awb number", "consignment", "cn no", "docket"], date: ["date", "booking date", "ship date"], client: ["client", "customer", "party", "consignor", "sender"], destination: ["destination", "dest", "city", "to"], service: ["service", "mode", "product"], weight: ["weight", "wt", "kg", "weight (kg)"], pieces: ["pieces", "pcs", "qty"], amount: ["amount", "charge", "freight", "rate"] } as const;
-type Parsed = { awb: string; date: string; client: string; destination: string; service: string; weight: number; pieces: number; amount: number | null; error?: string };
+type Row = {
+  line: number; awb: string; date: string; client: string; destination: string; service: string; pieces: number;
+  type: ShipmentType | null; weights: (number | null)[]; billing: number | null; amount: number | null; error?: string; dup?: "file" | "saved";
+};
+type SavedMap = { id: string; name: string; mapping: Mapping };
 
-function toISO(v: unknown): string {
-  if (v instanceof Date) return v.toISOString().slice(0, 10);
-  if (typeof v === "number") { const d = XLSX.SSF.parse_date_code(v); return `${d.y}-${String(d.m).padStart(2, "0")}-${String(d.d).padStart(2, "0")}`; }
-  const s = String(v || "").trim();
+function toISO(v: unknown): string | null {
+  if (v instanceof Date && !isNaN(+v)) return new Date(v.getTime() - v.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+  if (typeof v === "number") { const d = XLSX.SSF.parse_date_code(v); if (d) return `${d.y}-${String(d.m).padStart(2, "0")}-${String(d.d).padStart(2, "0")}`; }
+  const s = String(v ?? "").trim();
   const m = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})$/);
   if (m) { const y = m[3]!.length === 2 ? "20" + m[3] : m[3]; return `${y}-${m[2]!.padStart(2, "0")}-${m[1]!.padStart(2, "0")}`; }
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
-  return new Date().toISOString().slice(0, 10);
+  return null;
 }
 
 function ImportPage() {
   const { data: clients = [] } = useClients();
   const { data: cards = [] } = useRateCards();
   const qc = useQueryClient();
-  const [rows, setRows] = useState<Parsed[]>([]);
+  const [sheet, setSheet] = useState<unknown[][] | null>(null);
+  const [headerRow, setHeaderRow] = useState(0);
+  const [map, setMap] = useState<Mapping | null>(null);
+  const [existing, setExisting] = useState<Set<string>>(new Set());
   const [createClients, setCreateClients] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [mapName, setMapName] = useState("");
+
+  const saved = useQuery({
+    queryKey: ["import_mappings"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("import_mappings").select("id, name, mapping").order("name");
+      if (error) throw error;
+      return data as SavedMap[];
+    },
+    retry: false,
+  });
+
+  const headers = sheet?.[headerRow] ?? [];
+  const width = Math.max(0, ...(sheet ?? []).slice(0, 50).map((r) => r.length));
 
   async function onFile(file: File) {
-    const wb = XLSX.read(await file.arrayBuffer(), { cellDates: true });
-    const json = XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[wb.SheetNames[0]!]!, { defval: "" });
-    if (!json.length) { toast.error("Sheet is empty"); return; }
-    const headers = Object.keys(json[0]!);
-    const col = (k: keyof typeof FIELDS) => headers.find((h) => (FIELDS[k] as readonly string[]).includes(h.trim().toLowerCase()));
-    const c: Record<string, string | undefined> = Object.fromEntries((Object.keys(FIELDS) as (keyof typeof FIELDS)[]).map((k) => [k, col(k)]));
-    if (!c["awb"] || !c["client"] || !c["weight"]) { toast.error("Sheet needs columns: AWB, Client, Weight (also optional: Date, Destination, Service, Pieces, Amount)"); return; }
-    setRows(json.map((r) => {
-      const p: Parsed = { awb: String(r[c["awb"]!]).trim(), date: toISO(c["date"] ? r[c["date"]] : ""), client: String(r[c["client"]!]).trim(), destination: c["destination"] ? String(r[c["destination"]]) : "", service: c["service"] && r[c["service"]] ? String(r[c["service"]]).trim() : "Standard", weight: Number(r[c["weight"]!]) || 0, pieces: c["pieces"] ? Number(r[c["pieces"]]) || 1 : 1, amount: c["amount"] && r[c["amount"]] !== "" ? Number(r[c["amount"]]) : null };
-      if (!p.awb) p.error = "Missing AWB"; else if (!p.client) p.error = "Missing client";
-      return p;
-    }).filter((p) => p.awb || p.client));
+    try {
+      const wb = XLSX.read(await file.arrayBuffer(), { cellDates: true });
+      const aoa = XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[wb.SheetNames[0]!]!, { header: 1, defval: "", blankrows: false });
+      if (aoa.length < 2) { toast.error("Sheet has no data rows"); return; }
+      // header row = first row (within 10) with at least 3 text cells
+      const hr = Math.max(0, aoa.slice(0, 10).findIndex((r) => r.filter((c) => typeof c === "string" && c.trim()).length >= 3));
+      setSheet(aoa); setHeaderRow(hr); setMap(detectMapping(aoa[hr] ?? []));
+      // existing AWBs for this tenant (RLS limits to own rows)
+      const awbs = new Set<string>();
+      for (let from = 0; ; from += 1000) {
+        const { data, error } = await supabase.from("shipments").select("awb").range(from, from + 999);
+        if (error) throw error;
+        data.forEach((d) => awbs.add(String(d.awb).trim().toLowerCase()));
+        if (data.length < 1000) break;
+      }
+      setExisting(awbs);
+    } catch (e) { toast.error(errMsg(e)); }
+  }
+
+  const rows: Row[] = useMemo(() => {
+    if (!sheet || !map) return [];
+    const get = (r: unknown[], k: FieldKey) => (map[k] == null ? "" : r[map[k]!]);
+    const seen = new Set<string>();
+    const out: Row[] = [];
+    sheet.slice(headerRow + 1).forEach((r, i) => {
+      if (!r.some((c) => String(c ?? "").trim())) return;
+      const awb = String(get(r, "awb") ?? "").trim();
+      const client = String(get(r, "client") ?? "").trim();
+      const type = parseType(get(r, "type"));
+      const weights = (["w1", "w2", "w3", "w4"] as FieldKey[]).map((k) => parseWeight(get(r, k)));
+      const billing = billingWeight(weights);
+      const date = map.date == null ? null : toISO(get(r, "date"));
+      const amtRaw = get(r, "amount");
+      const row: Row = {
+        line: headerRow + i + 2, awb, client, type, weights, billing, date: date ?? "",
+        destination: String(get(r, "destination") ?? "").trim(),
+        service: String(get(r, "service") ?? "").trim() || "Standard",
+        pieces: Math.max(1, Math.round(Number(get(r, "pieces")) || 1)),
+        amount: amtRaw !== "" && amtRaw != null && Number.isFinite(Number(amtRaw)) ? Number(amtRaw) : null,
+      };
+      if (!awb) row.error = "Missing AWB";
+      else if (!client) row.error = "Missing client";
+      else if (!type) row.error = "Unknown shipment type (need DOX or NON-DOX)";
+      else if (billing == null) row.error = "No valid weight in mapped weight columns";
+      else if (!date) row.error = map.date == null ? "Map a shipment date column" : "Invalid date";
+      const key = awb.toLowerCase();
+      if (awb) {
+        if (existing.has(key)) row.dup = "saved";
+        else if (seen.has(key)) row.dup = "file";
+        seen.add(key);
+      }
+      out.push(row);
+    });
+    return out;
+  }, [sheet, map, headerRow, existing]);
+
+  const valid = rows.filter((r) => !r.error && !r.dup);
+  const dups = rows.filter((r) => r.dup).length;
+  const errors = rows.filter((r) => r.error).length;
+  const dox = valid.filter((r) => r.type === "DOX").length;
+  const missingReq = REQUIRED.filter((k) => map?.[k] == null);
+
+  async function saveMapping() {
+    if (!map || !mapName.trim()) { toast.error("Enter a name for this mapping"); return; }
+    const { error } = await supabase.from("import_mappings").upsert({ name: mapName.trim(), mapping: map, updated_at: new Date().toISOString() }, { onConflict: "owner_id,name" });
+    if (error) { toast.error(errMsg(error)); return; }
+    toast.success("Mapping saved"); saved.refetch();
   }
 
   async function process() {
     setBusy(true);
     try {
-      const map = new Map(clients.map((c) => [c.name.toLowerCase(), c.id]));
-      const missing = [...new Set(rows.filter((r) => !r.error && !map.has(r.client.toLowerCase())).map((r) => r.client))];
+      const byName = new Map(clients.map((c) => [c.name.toLowerCase(), c.id]));
+      const missing = [...new Set(valid.filter((r) => !byName.has(r.client.toLowerCase())).map((r) => r.client))];
       if (missing.length) {
-        if (!createClients) throw new Error(`Unknown clients: ${missing.slice(0, 5).join(", ")}`);
+        if (!createClients) throw new Error(`Unknown clients: ${missing.slice(0, 5).join(", ")}${missing.length > 5 ? "…" : ""}`);
         const { data, error } = await supabase.from("clients").insert(missing.map((name) => ({ name }))).select("id, name");
         if (error) throw error;
-        data!.forEach((c) => map.set(c.name.toLowerCase(), c.id));
+        data!.forEach((c) => byName.set(c.name.toLowerCase(), c.id));
       }
       const out = []; const skipped: string[] = [];
-      for (const r of rows) {
-        if (r.error) { skipped.push(`${r.awb || "?"}: ${r.error}`); continue; }
-        const cid = map.get(r.client.toLowerCase())!;
-        const amount = r.amount ?? calcAmount(cards, cid, r.service, r.weight);
+      for (const r of valid) {
+        const t = r.type!; const kg = toKg(t, r.billing!);
+        const cid = byName.get(r.client.toLowerCase())!;
+        const amount = r.amount ?? calcAmount(cards, cid, r.service, kg);
         if (amount == null) { skipped.push(`${r.awb}: no rate card for ${r.service}`); continue; }
-        out.push({ awb: r.awb, client_id: cid, ship_date: r.date, destination: r.destination, service: r.service, weight: r.weight, pieces: r.pieces, amount });
+        const [f, g, h, tt] = r.weights;
+        out.push({
+          awb: r.awb, client_id: cid, ship_date: r.date, destination: r.destination || null, service: r.service, pieces: r.pieces, amount,
+          weight: +kg.toFixed(3), shipment_type: t, weight_unit: unitOf(t), billing_weight: r.billing,
+          weight_f: f, weight_g: g, weight_h: h, weight_t: tt,
+        });
       }
       let inserted = 0;
       for (let i = 0; i < out.length; i += 500) {
@@ -75,9 +160,9 @@ function ImportPage() {
         if (error) throw error;
         inserted += data?.length || 0;
       }
-      toast.success(`${inserted} shipments added. ${out.length - inserted} duplicates and ${skipped.length} problem rows skipped.`);
-      if (skipped.length) console.warn("Skipped rows", skipped);
-      setRows([]);
+      toast.success(`${inserted} shipments added. Skipped: ${dups + out.length - inserted} duplicates, ${errors} invalid rows, ${skipped.length} without a rate card.`);
+      if (skipped.length) toast.warning(skipped.slice(0, 5).join("\n"));
+      setSheet(null); setMap(null);
       qc.invalidateQueries();
     } catch (e) {
       toast.error(errMsg(e));
@@ -85,34 +170,86 @@ function ImportPage() {
   }
 
   function template() {
-    const ws = XLSX.utils.aoa_to_sheet([["AWB", "Date", "Client", "Destination", "Service", "Weight", "Pieces", "Amount"]]);
+    const head = Array.from({ length: 20 }, () => "");
+    ["AWB", "Date", "Client", "Type", "Destination", "Weight 1", "Weight 2", "Weight 3", "Service", "Pieces"].forEach((h, i) => (head[i] = h));
+    head[19] = "Weight 4";
+    const ws = XLSX.utils.aoa_to_sheet([head]);
     const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Bookings");
     XLSX.writeFile(wb, "entrysetu-template.xlsx");
   }
 
-  const total = rows.reduce((a, r) => a + (r.amount ?? 0), 0);
+  const colOptions = Array.from({ length: width }, (_, i) => ({ i, label: `${colLetter(i)} · ${String(headers[i] ?? "").trim() || "(no header)"}` }));
+  const total = valid.reduce((a, r) => a + (r.amount ?? 0), 0);
+
   return (
     <div>
       <PageHead title="Excel import"><Button variant="outline" onClick={template}>Download template</Button></PageHead>
       <div className="rounded-xl border-2 border-dashed bg-card p-8 text-center">
-        <p className="mb-3 text-sm text-muted-foreground">Upload .xlsx, .xls or .csv. Required columns: AWB, Client, Weight. Amounts are taken from the sheet, or worked out from your <Link to="/rate-cards" className="text-primary underline">rate cards</Link>.</p>
-        <input type="file" accept=".xlsx,.xls,.csv" onChange={(e) => e.target.files?.[0] && onFile(e.target.files[0])} className="mx-auto block text-sm" />
+        <p className="mb-3 text-sm text-muted-foreground">Upload any courier .xlsx, .xls or .csv sheet. You can match its columns below. Weights are read from columns F, G, H and T by default: grams for DOX, kilograms for NON-DOX. The highest one is the billing weight. Amounts come from the sheet or your <Link to="/rate-cards" className="text-primary underline">rate cards</Link>.</p>
+        <input type="file" accept=".xlsx,.xls,.csv" onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f); e.target.value = ""; }} className="mx-auto block text-sm" />
       </div>
-      {rows.length > 0 && (
-        <div className="mt-6">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-            <div className="text-sm">{rows.length} rows · sheet amounts {inr(total)}</div>
-            <label className="flex items-center gap-2 text-sm"><Switch checked={createClients} onCheckedChange={setCreateClients} />Create new clients automatically</label>
-            <Button onClick={process} disabled={busy}>{busy ? "Processing…" : "Import shipments"}</Button>
-          </div>
-          <div className="max-h-[480px] overflow-auto rounded-xl border bg-card">
-            <table className="w-full text-sm">
-              <thead className="sticky top-0 bg-muted text-left"><tr><th className="p-2">AWB</th><th className="p-2">Date</th><th className="p-2">Client</th><th className="p-2">Dest.</th><th className="p-2">Service</th><th className="p-2">Kg</th><th className="p-2">Amount</th><th className="p-2">Status</th></tr></thead>
-              <tbody>{rows.slice(0, 300).map((r, i) => (
-                <tr key={i} className="border-t"><td className="p-2 font-mono">{r.awb}</td><td className="p-2">{r.date}</td><td className="p-2">{r.client}</td><td className="p-2">{r.destination}</td><td className="p-2">{r.service}</td><td className="p-2">{r.weight}</td><td className="p-2">{r.amount ?? "rate card"}</td><td className="p-2 text-destructive">{r.error}</td></tr>
-              ))}</tbody>
-            </table>
-          </div>
+
+      {sheet && map && (
+        <div className="mt-6 space-y-6">
+          <section className="rounded-xl border bg-card p-4">
+            <div className="mb-3 flex flex-wrap items-end gap-3">
+              <h2 className="mr-auto font-semibold">Column mapping</h2>
+              <label className="text-sm">Header row
+                <Input type="number" min={1} max={20} className="ml-2 inline-block w-20" value={headerRow + 1} onChange={(e) => { const v = Math.max(0, Math.min(sheet.length - 2, (+e.target.value || 1) - 1)); setHeaderRow(v); }} />
+              </label>
+              {saved.data && saved.data.length > 0 && (
+                <select className="h-9 rounded-md border bg-background px-2 text-sm" defaultValue="" onChange={(e) => { const s = saved.data!.find((m) => m.id === e.target.value); if (s) { setMap({ ...detectMapping([]), ...s.mapping }); setMapName(s.name); } }}>
+                  <option value="">Load saved mapping…</option>{saved.data.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                </select>
+              )}
+              <Input placeholder="Mapping name" className="w-44" value={mapName} onChange={(e) => setMapName(e.target.value)} />
+              <Button variant="outline" onClick={saveMapping} disabled={saved.isError}>Save mapping</Button>
+            </div>
+            {saved.isError && <p className="mb-3 text-sm text-destructive">Saved mappings aren't available yet. Run the database update for import weights first.</p>}
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {(Object.keys(FIELD_LABELS) as FieldKey[]).map((k) => (
+                <label key={k} className="text-sm">
+                  <span className="mb-1 block">{FIELD_LABELS[k]}{REQUIRED.includes(k) && " *"}</span>
+                  <select className="h-9 w-full rounded-md border bg-background px-2 text-sm" value={map[k] ?? ""} onChange={(e) => setMap({ ...map, [k]: e.target.value === "" ? null : +e.target.value })}>
+                    <option value="">— not in sheet —</option>
+                    {colOptions.map((o) => <option key={o.i} value={o.i}>{o.label}</option>)}
+                  </select>
+                </label>
+              ))}
+            </div>
+          </section>
+
+          <section>
+            <div className="mb-3 grid grid-cols-2 gap-3 text-sm sm:grid-cols-5">
+              {[["Total rows", rows.length], ["Valid (new)", valid.length], ["Duplicate AWBs", dups], ["Rows with errors", errors], ["DOX / NON-DOX", `${dox} / ${valid.length - dox}`]].map(([l, v]) => (
+                <div key={l} className="rounded-lg border bg-card p-3"><div className="text-muted-foreground">{l}</div><div className="text-lg font-semibold">{v}</div></div>
+              ))}
+            </div>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+              <div className="text-sm">Sheet amounts on valid rows: {inr(total)}</div>
+              <label className="flex items-center gap-2 text-sm"><Switch checked={createClients} onCheckedChange={setCreateClients} />Create new clients from sheet names</label>
+              <Button onClick={process} disabled={busy || !valid.length || missingReq.length > 0}>{busy ? "Importing…" : `Import ${valid.length} shipments`}</Button>
+            </div>
+            {missingReq.length > 0 && <p className="mb-3 text-sm text-destructive">Map these columns first: {missingReq.map((k) => FIELD_LABELS[k]).join(", ")}</p>}
+            <div className="max-h-[520px] overflow-auto rounded-xl border bg-card">
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 bg-muted text-left"><tr>
+                  {["Row", "AWB", "Date", "Client", "Type", "F", "G", "H", "T", "Billing wt", "Service", "Amount", "Status"].map((h) => <th key={h} className="p-2">{h}</th>)}
+                </tr></thead>
+                <tbody>{rows.slice(0, 500).map((r) => (
+                  <tr key={r.line} className="border-t">
+                    <td className="p-2 text-muted-foreground">{r.line}</td><td className="p-2 font-mono">{r.awb}</td><td className="p-2">{r.date}</td><td className="p-2">{r.client}</td>
+                    <td className="p-2">{r.type ?? "—"}</td>
+                    {r.weights.map((w, j) => <td key={j} className="p-2">{w ?? ""}</td>)}
+                    <td className="p-2 font-medium">{r.type && r.billing != null ? fmtWeight(r.type, r.billing) : "—"}</td>
+                    <td className="p-2">{r.service}</td><td className="p-2">{r.amount ?? "rate card"}</td>
+                    <td className="p-2">{r.error ? <span className="text-destructive">{r.error}</span> : r.dup ? <span className="text-muted-foreground">{r.dup === "saved" ? "Duplicate (already imported)" : "Duplicate in file"}</span> : "OK"}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
+              {rows.length > 500 && <p className="p-2 text-center text-xs text-muted-foreground">Showing first 500 of {rows.length} rows; all rows will be imported.</p>}
+            </div>
+          </section>
         </div>
       )}
     </div>
