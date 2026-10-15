@@ -124,10 +124,14 @@ select tie.expect_fail($$select public.discard_invoice_draft((select id from tie
 select tie.expect_fail($$select public.create_invoice_draft((select b_c from tie.c), current_date - 30, current_date, array[(select s4 from tie.c)])$$, 'B cannot reserve A shipment', '{P0001}', '%not available%');
 select tie.expect_fail($$select public.create_invoice_draft((select a_in from tie.c), current_date - 30, current_date)$$, 'B cannot bill A client', '{P0001}', 'Client not found%');
 
--- F. Tax rules cannot be bypassed
-select tie.expect_fail($$select public.create_invoice_draft((select b_c from tie.c), current_date - 30, current_date, null, current_date, 'gst')$$, 'no GSTIN -> no GST invoice', '{P0001}', '%GSTIN%');
+-- F. Invoice type is the seller's choice (GSTIN-based locking NOT enforced yet)
+-- Seller B has no GSTIN but may still create a GST draft; seller A has a GSTIN
+-- but may still choose Non-GST. Non-GST never carries tax.
+select tie.as_user('00000000-0000-0000-0000-0000000e0bb1');
+insert into tie.ids select 'df', public.create_invoice_draft((select b_c from tie.c), current_date - 30, current_date, null, current_date, 'gst');
+select tie.ok((select kind = 'gst' and tax_mode = 'inter' and igst > 0 from public.invoices where id = (select id from tie.ids where k = 'df')), 'seller without GSTIN can create GST draft');
+select public.discard_invoice_draft((select id from tie.ids where k = 'df'));
 select tie.as_user('00000000-0000-0000-0000-0000000e0aa1');
-select tie.expect_fail($$select public.create_invoice_draft((select a_out from tie.c), current_date - 30, current_date, null, current_date, 'nongst')$$, 'GSTIN -> Non-GST blocked', '{P0001}', '%must be a GST invoice%');
 
 -- G. Edit lines + charges; DB recalculates; shipments and rate cards untouched
 -- Lines: TIE1 amount 100 -> 150 (weight 1 -> 1.5, declared 10000), TIE2 unchanged, TIE3 removed.
