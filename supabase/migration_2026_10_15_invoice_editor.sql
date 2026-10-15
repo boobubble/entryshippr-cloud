@@ -338,6 +338,20 @@ begin
     using errcode = 'P0001';
 end $$;
 revoke all on function public.shipments_draft_guard() from public, anon, authenticated, service_role;
+-- Repricing skips reserved shipments so it can never trip the guard above
+-- (same body as migration_2026_10_15_cities_zones.sql plus one filter).
+create or replace function public.reprice_review(p_owner uuid)
+returns int language plpgsql security definer set search_path = '' as $$
+declare v_n int;
+begin
+  update public.shipments set destination = destination      -- fires shipments_apply_rate
+   where owner_id = p_owner and invoice_id is null and draft_invoice_id is null and pricing_status = 'needs_review';
+  get diagnostics v_n = row_count;
+  return v_n;
+end $$;
+revoke all on function public.reprice_review(uuid) from public, anon, authenticated;
+grant execute on function public.reprice_review(uuid) to service_role;
+
 drop trigger if exists shipments_draft_guard on public.shipments;
 create trigger shipments_draft_guard before update or delete on public.shipments
   for each row execute function public.shipments_draft_guard();
