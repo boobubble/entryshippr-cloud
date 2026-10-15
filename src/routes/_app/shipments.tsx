@@ -1,3 +1,5 @@
+import { up, upName } from "@/lib/text";
+import { CityInput, ClientInput } from "@/components/Autocomplete";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -49,7 +51,7 @@ function Shipments() {
   async function insert(form: Form) {
     const w = +form.weight;
     const { data, error } = await supabase.from("shipments").insert({
-      awb: form.awb.trim(), client_id: form.client_id, ship_date: form.ship_date, destination: form.destination.trim(),
+      awb: form.awb.trim(), client_id: form.client_id, ship_date: form.ship_date, destination: upName(form.destination),
       service: form.service, pieces: +form.pieces || 1, shipment_type: form.type, weight_f: w,
       weight: form.type === "DOX" ? billedWeight("DOX", w) / 1000 : billedWeight("NON-DOX", w), amount: 0, // database prices it
     }).select("amount, pricing_status, review_reason").single();
@@ -78,7 +80,7 @@ function Shipments() {
     qc.invalidateQueries({ queryKey: ["shipments"] });
   }
   function exportXlsx() {
-    const ws = XLSX.utils.json_to_sheet(rows.map((r) => ({ AWB: r.awb, Date: r.ship_date, Client: r.clients?.name, City: r.destination, Type: r.shipment_type ?? "", Service: r.service, "Weight (kg)": r.weight, Pieces: r.pieces, Amount: r.amount, Status: r.pricing_status === "needs_review" ? `Needs review: ${r.review_reason}` : "Priced", Billed: r.invoice_id ? "Yes" : "No" })));
+    const ws = XLSX.utils.json_to_sheet(rows.map((r) => ({ AWB: r.awb, Date: r.ship_date, Client: up(r.clients?.name), City: up(r.destination), Type: r.shipment_type ?? "", Service: r.service, "Weight (kg)": r.weight, Pieces: r.pieces, Amount: r.amount, Status: r.pricing_status === "needs_review" ? `Needs review: ${r.review_reason}` : "Priced", Billed: r.invoice_id ? "Yes" : "No" })));
     const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Shipments");
     XLSX.writeFile(wb, `shipments-${today}.xlsx`);
   }
@@ -89,11 +91,9 @@ function Shipments() {
       <form onSubmit={add} className="mb-6 grid gap-3 rounded-xl border bg-card p-4 md:grid-cols-8 md:items-end">
         <div><Label>AWB</Label><Input required value={f.awb} onChange={(e) => setF({ ...f, awb: e.target.value })} /></div>
         <div className="md:col-span-2"><Label>Client</Label>
-          <select required className="h-9 w-full rounded-md border bg-background px-2 text-sm" value={f.client_id} onChange={(e) => setF({ ...f, client_id: e.target.value })}>
-            <option value="">Select…</option>{clients.filter((c) => c.active).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select></div>
+          <ClientInput required clients={clients.filter((c) => c.active)} value={f.client_id} onChange={(client_id) => setF({ ...f, client_id })} /></div>
         <div><Label>Date</Label><Input type="date" required value={f.ship_date} onChange={(e) => setF({ ...f, ship_date: e.target.value })} /></div>
-        <div><Label>City</Label><Input required value={f.destination} onChange={(e) => setF({ ...f, destination: e.target.value })} /></div>
+        <div><Label>City</Label><CityInput required value={f.destination} onChange={(destination) => setF({ ...f, destination })} /></div>
         <div><Label>Type</Label>
           <select className="h-9 w-full rounded-md border bg-background px-2 text-sm" value={f.type} onChange={(e) => setF({ ...f, type: e.target.value as Form["type"] })}>
             <option value="DOX">DOX (g)</option><option value="NON-DOX">NON-DOX (kg)</option>
@@ -109,7 +109,7 @@ function Shipments() {
       <div className="mb-3 flex flex-wrap gap-2">
         <Input placeholder="Search AWB" className="w-44" value={filter.q} onChange={(e) => setFilter({ ...filter, q: e.target.value })} />
         <select className="h-9 rounded-md border bg-background px-2 text-sm" value={filter.client} onChange={(e) => setFilter({ ...filter, client: e.target.value })}>
-          <option value="">All clients</option>{clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          <option value="">All clients</option>{clients.map((c) => <option key={c.id} value={c.id}>{up(c.name)}</option>)}
         </select>
         <Input type="date" className="w-40" value={filter.from} onChange={(e) => setFilter({ ...filter, from: e.target.value })} />
         <Input type="date" className="w-40" value={filter.to} onChange={(e) => setFilter({ ...filter, to: e.target.value })} />
@@ -120,7 +120,7 @@ function Shipments() {
           <thead className="bg-muted text-left"><tr><th className="p-3">AWB</th><th className="p-3">Date</th><th className="p-3">Client</th><th className="p-3">City</th><th className="p-3">Service</th><th className="p-3">Weight</th><th className="p-3 text-right">Amount</th><th className="p-3">Status</th><th /></tr></thead>
           <tbody>
             {rows.map((r) => (
-              <tr key={r.id} className="border-t"><td className="p-3 font-mono">{r.awb}</td><td className="p-3">{r.ship_date}</td><td className="p-3">{r.clients?.name}</td><td className="p-3">{r.destination}</td><td className="p-3">{r.service}</td><td className="p-3">{r.billing_weight != null && r.weight_unit ? `${+r.billing_weight} ${r.weight_unit}` : `${r.weight} kg`}{r.shipment_type ? ` · ${r.shipment_type}` : ""}</td><td className="p-3 text-right">{r.pricing_status === "needs_review" ? "—" : inr(r.amount)}</td><td className="p-3">{r.pricing_status === "needs_review" ? <span className="text-destructive">Needs review: {r.review_reason}</span> : r.invoice_id ? "Billed" : "Unbilled"}</td>
+              <tr key={r.id} className="border-t"><td className="p-3 font-mono">{r.awb}</td><td className="p-3">{r.ship_date}</td><td className="p-3">{up(r.clients?.name)}</td><td className="p-3">{up(r.destination)}</td><td className="p-3">{r.service}</td><td className="p-3">{r.billing_weight != null && r.weight_unit ? `${+r.billing_weight} ${r.weight_unit}` : `${r.weight} kg`}{r.shipment_type ? ` · ${r.shipment_type}` : ""}</td><td className="p-3 text-right">{r.pricing_status === "needs_review" ? "—" : inr(r.amount)}</td><td className="p-3">{r.pricing_status === "needs_review" ? <span className="text-destructive">Needs review: {r.review_reason}</span> : r.invoice_id ? "Billed" : "Unbilled"}</td>
                 <td className="p-3"><Button size="sm" variant="ghost" onClick={() => del(r)}>Delete</Button></td></tr>
             ))}
             {!rows.length && <tr><td colSpan={9} className="p-6 text-center text-muted-foreground">No shipments found.</td></tr>}

@@ -1,3 +1,4 @@
+import { up } from "@/lib/text";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { supabase, inr } from "@/lib/supabase";
@@ -62,7 +63,7 @@ function Dashboard() {
           <thead className="bg-muted text-left"><tr><th className="p-3">AWB</th><th className="p-3">Date</th><th className="p-3">Client</th><th className="p-3">Destination</th><th className="p-3 text-right">Amount</th></tr></thead>
           <tbody>
             {data?.recent.map((r) => (
-              <tr key={r.id} className="border-t"><td className="p-3 font-mono">{r.awb}</td><td className="p-3">{r.ship_date}</td><td className="p-3">{r.clients?.name}</td><td className="p-3">{r.destination}</td><td className="p-3 text-right">{inr(r.amount)}</td></tr>
+              <tr key={r.id} className="border-t"><td className="p-3 font-mono">{r.awb}</td><td className="p-3">{r.ship_date}</td><td className="p-3">{up(r.clients?.name)}</td><td className="p-3">{up(r.destination)}</td><td className="p-3 text-right">{inr(r.amount)}</td></tr>
             ))}
             {data && !data.recent.length && <tr><td colSpan={5} className="p-6 text-center text-muted-foreground">No shipments yet. Add clients and rate cards, then import your Excel sheet.</td></tr>}
           </tbody>

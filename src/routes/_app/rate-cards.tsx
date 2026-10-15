@@ -1,3 +1,4 @@
+import { up } from "@/lib/text";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -108,7 +109,7 @@ function RateCards() {
         <div className="mb-4 flex flex-wrap items-center gap-3">
           <select className={`${sel} min-w-52`} value={clientId} onChange={(e) => { const v = e.target.value; switchTo(() => setClientId(v)); }}>
             <option value="">Default (all clients)</option>
-            {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            {clients.map((c) => <option key={c.id} value={c.id}>{up(c.name)}</option>)}
           </select>
           <div className="inline-flex rounded-md border p-0.5" role="tablist">
             {(["DOX", "NON-DOX"] as ShipmentType[]).map((t) => (
@@ -120,7 +121,7 @@ function RateCards() {
             <select className={sel} value={copyTo} onChange={(e) => setCopyTo(e.target.value)} disabled={notReady}>
               <option value="">Copy these rates to…</option>
               {clientId && <option value="__default">Default (all clients)</option>}
-              {clients.filter((c) => c.id !== clientId).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              {clients.filter((c) => c.id !== clientId).map((c) => <option key={c.id} value={c.id}>{up(c.name)}</option>)}
             </select>
             <Button variant="outline" onClick={copy} disabled={!copyTo || notReady}>Copy</Button>
           </div>
