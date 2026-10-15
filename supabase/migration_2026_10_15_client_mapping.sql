@@ -118,6 +118,7 @@ create trigger invoices_snapshot_client before insert on public.invoices
 create or replace function public.invoices_snapshot_guard()
 returns trigger language plpgsql security invoker set search_path = '' as $$
 begin
+  if old.status::text = 'draft' then return new; end if;   -- drafts (invoice editor) may refresh
   if (old.bill_to_name is not null and new.bill_to_name is distinct from old.bill_to_name)
      or (old.bill_to_name is not null and (new.bill_to_gstin is distinct from old.bill_to_gstin
          or new.bill_to_state is distinct from old.bill_to_state

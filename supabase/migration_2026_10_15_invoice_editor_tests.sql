@@ -259,6 +259,69 @@ select tie.ok((select invoice_no = s.prefix || '-' || substr(s.fy, 3, 2) || '-' 
                where i.id = (select id from tie.ids where k = 'd4')), 'custom series format applied');
 select tie.expect_fail($$select public.set_invoice_series_format((select fy from tie.c), 'gst', 'XX', '/', 4)$$, 'invalid FY format', '{P0001}');
 
+-- Q. Existing create_invoice / cancel_invoice keep working with the new triggers,
+--    and share one gap-free number sequence with finalize_invoice.
+insert into public.shipments (client_id, awb, ship_date, destination, weight)
+select (select a_in from tie.c), 'TIE5', current_date - 2, 'MUMBAI', 1;
+update public.shipments set amount = 50 where awb = 'TIE5';
+insert into tie.ids select 'L1', public.create_invoice((select a_in from tie.c), current_date - 30, current_date);
+select tie.ok((select status = 'issued' and numbering = 'auto' and charges_total = 0 and taxable_value = 50 and tax_mode = 'intra'
+               and gst_rate = 18 and cgst = 4.50 and sgst = 4.50 and total = 59 and round_off = 0 and finalized_at is not null
+               and bill_to_name = 'TIE IN' and invoice_no = 'GST/' || fy || '/' || lpad(seq::text, 4, '0')
+               from public.invoices where id = (select id from tie.ids where k = 'L1')), 'legacy create_invoice fills new columns + snapshot');
+insert into public.shipments (client_id, awb, ship_date, destination, weight)
+select (select a_in from tie.c), x, current_date - 2, 'MUMBAI', 1 from unnest(array['TIE6','TIE7','TIE8','TIE9','TIE10']) x;
+update public.shipments set amount = 10 where awb in ('TIE6','TIE7','TIE8','TIE9','TIE10');
+insert into tie.ids select 'd5', public.create_invoice_draft((select a_in from tie.c), current_date - 30, current_date,
+  array[(select id from public.shipments where awb = 'TIE6')]);
+select public.finalize_invoice((select id from tie.ids where k = 'd5'));
+select tie.ok((select count(*) = 5 and count(distinct seq) = 5 and min(seq) = 1 and max(seq) = 5 and count(distinct invoice_no) = 5
+               from public.invoices where owner_id = '00000000-0000-0000-0000-0000000e0aa1' and kind = 'gst' and seq is not null),
+              'auto numbers 1..5 unique and gap-free across create_invoice + finalize_invoice (incl. cancelled)');
+select tie.ok((select s.next_number = 6 from public.invoice_series s
+               where s.owner_id = '00000000-0000-0000-0000-0000000e0aa1' and s.kind = 'gst' and s.fy = (select fy from tie.c)), 'series counter consistent');
+-- Manual numbers that look like ANY automatic format (incl. create_invoice's fixed one) are blocked.
+insert into tie.ids select 'd6', public.create_invoice_draft((select a_in from tie.c), current_date - 30, current_date,
+  array[(select id from public.shipments where awb = 'TIE7')]);
+select public.save_invoice_draft((select id from tie.ids where k = 'd6'),
+  jsonb_build_object('numbering', 'manual', 'requested_invoice_no', 'GST/' || (select fy from tie.c) || '/0099'),
+  jsonb_build_array(jsonb_build_object('shipment_id', (select id from public.shipments where awb = 'TIE7'), 'weight', 1, 'rate', 10, 'amount', 10)), '[]');
+select tie.expect_fail($$select public.finalize_invoice((select id from tie.ids where k = 'd6'))$$, 'manual number in create_invoice format blocked', '{P0001}', '%automatic series%');
+select public.save_invoice_draft((select id from tie.ids where k = 'd6'), '{"numbering":"manual","requested_invoice_no":"gst-26-27-050"}',
+  jsonb_build_array(jsonb_build_object('shipment_id', (select id from public.shipments where awb = 'TIE7'), 'weight', 1, 'rate', 10, 'amount', 10)), '[]');
+select tie.expect_fail($$select public.finalize_invoice((select id from tie.ids where k = 'd6'))$$, 'manual number with series prefix (any case) blocked', '{P0001}', '%automatic series%');
+-- Same manual number on two drafts: only the first finalize wins.
+select public.save_invoice_draft((select id from tie.ids where k = 'd6'), '{"numbering":"manual","requested_invoice_no":"RACE-001"}',
+  jsonb_build_array(jsonb_build_object('shipment_id', (select id from public.shipments where awb = 'TIE7'), 'weight', 1, 'rate', 10, 'amount', 10)), '[]');
+insert into tie.ids select 'd7', public.create_invoice_draft((select a_in from tie.c), current_date - 30, current_date,
+  array[(select id from public.shipments where awb = 'TIE8')]);
+select public.save_invoice_draft((select id from tie.ids where k = 'd7'), '{"numbering":"manual","requested_invoice_no":"RACE-001"}',
+  jsonb_build_array(jsonb_build_object('shipment_id', (select id from public.shipments where awb = 'TIE8'), 'weight', 1, 'rate', 10, 'amount', 10)), '[]');
+select public.finalize_invoice((select id from tie.ids where k = 'd6'));
+select tie.expect_fail($$select public.finalize_invoice((select id from tie.ids where k = 'd7'))$$, 'duplicate manual number on 2nd draft', '{P0001}', '%already used%');
+select tie.ok((select status = 'draft' and invoice_no is null from public.invoices where id = (select id from tie.ids where k = 'd7')), 'losing draft stays an unnumbered draft');
+select public.discard_invoice_draft((select id from tie.ids where k = 'd7'));
+-- cancel_invoice passes the immutability trigger and releases shipments.
+select public.cancel_invoice((select id from tie.ids where k = 'L1'), 'legacy cancel test');
+select tie.ok((select status = 'cancelled' and total = 59 and bill_to_name = 'TIE IN' from public.invoices where id = (select id from tie.ids where k = 'L1'))
+              and (select invoice_id is null from public.shipments where awb = 'TIE5'), 'legacy cancel_invoice works, amounts + snapshot kept');
+
+-- R. Client rename: open drafts refresh the bill-to name; issued/cancelled keep it.
+insert into tie.ids select 'd8', public.create_invoice_draft((select a_in from tie.c), current_date - 30, current_date,
+  array[(select id from public.shipments where awb = 'TIE9')]);
+update public.clients set name = 'TIE IN RENAMED' where id = (select a_in from tie.c);
+select public.save_invoice_draft((select id from tie.ids where k = 'd8'), '{}',
+  jsonb_build_array(jsonb_build_object('shipment_id', (select id from public.shipments where awb = 'TIE9'), 'weight', 1, 'rate', 10, 'amount', 10)), '[]');
+select tie.ok((select bill_to_name = 'TIE IN RENAMED' from public.invoices where id = (select id from tie.ids where k = 'd8')), 'draft picks up renamed client');
+select tie.ok((select count(*) = 0 from public.invoices where client_id = (select a_in from tie.c) and status <> 'draft' and bill_to_name <> 'TIE IN'),
+              'issued + cancelled invoices keep the original name');
+select public.finalize_invoice((select id from tie.ids where k = 'd8'));
+reset role;
+select tie.expect_fail($$update public.invoices set bill_to_name = 'X' where id = (select id from tie.ids where k = 'd8')$$, 'issued snapshot frozen for owner role', '{P0001,42501}');
+set local role authenticated;
+select tie.as_user('00000000-0000-0000-0000-0000000e0aa1');
+
+
 -- N. Discard releases shipments; B (no GSTIN) gets Non-GST with no tax
 select tie.as_user('00000000-0000-0000-0000-0000000e0bb1');
 insert into tie.ids select 'db', public.create_invoice_draft((select b_c from tie.c), current_date - 30, current_date);

@@ -55,6 +55,32 @@ alter table public.invoices add column if not exists reissue_of uuid;
 alter table public.invoices add column if not exists finalized_at timestamptz;
 alter table public.invoices add column if not exists updated_at timestamptz not null default now();
 
+-- Bill-to snapshot (same definitions as migration_2026_10_15_client_mapping.sql).
+-- Repeated here so this migration works whether or not that one has been run;
+-- every statement is create-if-missing / create-or-replace with identical bodies.
+alter table public.invoices add column if not exists bill_to_name    text;
+alter table public.invoices add column if not exists bill_to_gstin   text;
+alter table public.invoices add column if not exists bill_to_state   text;
+alter table public.invoices add column if not exists bill_to_address text;
+create or replace function public.invoices_snapshot_client()
+returns trigger language plpgsql security invoker set search_path = '' as $$
+begin
+  select c.name, nullif(c.gstin, ''), c.state, c.address
+    into new.bill_to_name, new.bill_to_gstin, new.bill_to_state, new.bill_to_address
+    from public.clients c where c.id = new.client_id and c.owner_id = new.owner_id;
+  return new;
+end $$;
+revoke all on function public.invoices_snapshot_client() from public, anon, authenticated;
+drop trigger if exists invoices_snapshot_client on public.invoices;
+create trigger invoices_snapshot_client before insert on public.invoices
+  for each row execute function public.invoices_snapshot_client();
+-- Freeze existing invoices with the client's CURRENT details (only rows without
+-- a snapshot). Run BEFORE renaming any client so old invoices keep original names.
+update public.invoices i
+   set bill_to_name = c.name, bill_to_gstin = nullif(c.gstin, ''), bill_to_state = c.state, bill_to_address = c.address
+  from public.clients c
+ where i.bill_to_name is null and c.id = i.client_id and c.owner_id = i.owner_id;
+
 -- One-time backfill of existing invoices (runs before the immutability trigger exists).
 update public.invoices
    set taxable_value = subtotal,
@@ -129,13 +155,18 @@ begin
   end if;
   return new;
 end $$;
+revoke all on function public.invoices_snapshot_guard() from public, anon, authenticated;
+drop trigger if exists invoices_snapshot_guard on public.invoices;
+create trigger invoices_snapshot_guard before update on public.invoices
+  for each row execute function public.invoices_snapshot_guard();
 
 -- Issued / cancelled invoices are immutable for EVERY role (service role included).
 -- Allowed: draft edits, draft -> issued, draft delete, issued -> cancelled (status,
--- cancelled_at, cancel_reason only).
+-- cancelled_at, cancel_reason only), and filling an EMPTY bill-to snapshot once
+-- (so the client-mapping backfill still works if it is run after this migration).
 create or replace function public.invoices_immutable()
 returns trigger language plpgsql set search_path = '' as $$
-declare v public.invoices;
+declare v public.invoices; o public.invoices;
 begin
   if tg_op = 'DELETE' then
     if old.status <> 'draft' then
@@ -148,15 +179,20 @@ begin
     new.updated_at := now();
     return new;
   end if;
+  o := old;
+  if old.bill_to_name is null then
+    o.bill_to_name := new.bill_to_name; o.bill_to_gstin := new.bill_to_gstin;
+    o.bill_to_state := new.bill_to_state; o.bill_to_address := new.bill_to_address;
+  end if;
   if old.status = 'issued' and new.status = 'cancelled' then
     v := new;
     v.status := old.status; v.cancelled_at := old.cancelled_at; v.cancel_reason := old.cancel_reason;
-    if v is distinct from old then
+    if v is distinct from o then
       raise exception 'Issued invoices are immutable. Only cancellation is allowed.' using errcode = 'P0001';
     end if;
     return new;
   end if;
-  if new is distinct from old then
+  if new is distinct from o then
     raise exception 'Issued invoices are immutable. Cancel and reissue to correct them.' using errcode = 'P0001';
   end if;
   return new;
@@ -458,7 +494,9 @@ begin
   if not exists (select 1 from public.clients where id = p_client_id and owner_id = v_uid) then
     raise exception 'Client not found';
   end if;
-  v_kind := coalesce(p_kind, case when (select nullif(btrim(gstin), '') from public.profiles where id = v_uid) is not null
+  -- Default type = existing create_invoice rule (client's GST setting), so a new
+  -- draft starts exactly like today's invoice. The seller may change it explicitly.
+  v_kind := coalesce(p_kind, case when (select is_gst from public.clients where id = p_client_id and owner_id = v_uid)
                                   then 'gst'::public.invoice_kind else 'nongst'::public.invoice_kind end);
   v_mode := public.invoice_tax_mode(v_uid, p_client_id, v_kind);
 
@@ -623,11 +661,13 @@ begin
     if exists (select 1 from public.invoices where owner_id = v_uid and invoice_no = v_no) then
       raise exception 'Invoice number % is already used (cancelled numbers stay reserved).', v_no using errcode = 'P0001';
     end if;
-    v_n := nullif(substring(v_no from '([0-9]{1,8})$'), '')::bigint;
-    if v_n is not null and exists (select 1 from public.invoice_series x
-         where x.owner_id = v_uid and x.fy = v_fy
-           and public.format_invoice_no(x.prefix, x.fy, v_n::int, x.fy_format, x.separator, x.pad) = v_no) then
-      raise exception 'Number % belongs to your automatic series. Use automatic numbering or change the series starting number instead.', v_no
+    -- Block anything that starts like an automatic number (any FY, any format,
+    -- and the fixed format used by the existing create_invoice), so a manual
+    -- entry can never collide with a number the auto series hands out later.
+    if exists (select 1 from (select prefix from public.invoice_series where owner_id = v_uid
+                              union select 'GST' union select 'BOS') x
+                where upper(v_no) like upper(x.prefix) || '/%' or upper(v_no) like upper(x.prefix) || '-%') then
+      raise exception 'Number % belongs to your automatic series. Use automatic numbering or a number that does not start with your series prefix.', v_no
         using errcode = 'P0001';
     end if;
   else
