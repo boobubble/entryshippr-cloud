@@ -181,13 +181,25 @@ select tam.ok((select draft_invoice_id is null and amount = 150.50 and charge_mo
 delete from public.shipments where awb = 'TAM-M2';     -- audit 'delete' row expected
 insert into tam.ids select 'i1', public.create_invoice((select c1 from tam.c), current_date - 30, current_date, current_date);
 select tam.ok((select invoice_id is not null from public.shipments where awb = 'TAM-M1'), 'manual shipment invoiced');
-select tam.expect_fail($q$update public.shipments set manual_amount = 200 where awb = 'TAM-M1'$q$, 'manual locked after invoicing (seller)', array['P0001']);
+update public.shipments set manual_amount = 200, charge_mode = 'manual' where awb = 'TAM-M1';   -- RLS: billed rows match nothing
+select tam.ok((select amount = 150.50 and manual_amount = 150.50 from public.shipments where awb = 'TAM-M1'), 'manual locked after invoicing (seller)');
 reset role;
 select tam.no_user();
 set local role service_role;
 select tam.expect_fail($q$update public.shipments set manual_amount = 200 where awb = 'TAM-M1'$q$, 'manual locked after invoicing (service role)', array['P0001', '42501']);
 reset role;
 select tam.ok((select total > 0 from public.invoices where id = (select id from tam.ids where k = 'i1')), 'invoice issued');
+
+-- E2. Finalize with a typed (DOX/NON-DOX) shipment — regression for the draft guard fix
+set local role authenticated;
+select tam.as_user('00000000-0000-0000-0000-00000000a5a1');
+insert into public.shipments (client_id, awb, destination, service, shipment_type, weight_f, weight, amount, charge_mode, manual_amount)
+select c2, 'TAM-F1', 'MUMBAI', 'Standard', 'NON-DOX', 1.5, 1.5, 0, 'manual', 120 from tam.c;
+insert into tam.ids select 'd2', public.create_invoice_draft((select c2 from tam.c), current_date - 30, current_date,
+  array[(select id from public.shipments where awb = 'TAM-F1')]);
+insert into tam.ids select 'f2', (public.finalize_invoice_draft((select id from tam.ids where k = 'd2'))).id;
+select tam.ok((select invoice_id = (select id from tam.ids where k = 'd2') and draft_invoice_id is null and amount = 120 from public.shipments where awb = 'TAM-F1'), 'typed manual shipment finalizes and links to issued invoice');
+reset role;
 
 -- F. Audit history
 select tam.ok((select count(*) = 1 from public.shipment_charge_audit where awb = 'TAM-M1' and action = 'update' and old_mode = 'auto' and new_mode = 'manual' and new_amount = 150.50
