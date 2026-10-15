@@ -251,5 +251,141 @@ select t15.ok((select count(*) from public.zones where owner_id = '00000000-0000
           and (select count(*) from public.import_mappings where owner_id = '00000000-0000-0000-0000-0000000000a1') = 1,
   'expired: deletes had no effect');
 
+
+-- =====================================================================
+-- F. Invoices: series protection, creation, sequential numbering, cancellation
+-- =====================================================================
+set local role authenticated;
+select t15.as_user('00000000-0000-0000-0000-0000000000b1');
+update public.profiles set state = 'Gujarat';
+insert into public.clients (name, state, is_gst) values ('B-GST', 'Gujarat', true), ('B-IGST', 'Maharashtra', true), ('B-NG', 'Maharashtra', false);
+reset role;
+create table t15.b as select
+  (select id from public.clients where name = 'B-GST') gst, (select id from public.clients where name = 'B-IGST') igst,
+  (select id from public.clients where name = 'B-NG') ng, public.fy_label(current_date) fy;
+grant select on t15.b to authenticated;
+set local role authenticated;
+select t15.as_user('00000000-0000-0000-0000-0000000000b1');
+
+select t15.expect_fail($$insert into public.invoice_series (fy, kind, prefix, next_number) select fy, 'gst', 'X', 1 from t15.b$$, 'direct series insert blocked', '{42501}');
+select public.set_invoice_series((select fy from t15.b), 'gst', 'INV', 5);
+select t15.expect_fail($$update public.invoice_series set next_number = 1$$, 'direct next_number update blocked', '{42501}');
+select t15.expect_fail($$update public.invoice_series set prefix = 'Z'$$, 'direct prefix update blocked', '{42501}');
+select t15.expect_fail($$delete from public.invoice_series$$, 'series delete blocked', '{42501}');
+select t15.expect_fail($$select public.set_invoice_series((select fy from t15.b), 'gst', 'INV', 3)$$, 'series cannot go backwards', '{P0001}', '%backwards%');
+select t15.expect_fail($$select public.set_invoice_series((select fy from t15.b), 'gst', 'bad prefix!', 9)$$, 'invalid prefix rejected', '{P0001}');
+
+insert into public.shipments (client_id, awb, weight, amount) select gst, 'B-S1', 1, 100 from t15.b;
+create temp table inv1 on commit drop as select public.create_invoice((select gst from t15.b), current_date - 30, current_date) id;
+select t15.ok((select seq = 5 and invoice_no = 'INV/' || fy || '/0005' and cgst = 9 and sgst = 9 and igst = 0 and total = 118
+               from public.invoices where id = (select id from inv1)), 'first GST invoice uses configured start 5, CGST+SGST');
+insert into public.shipments (client_id, awb, weight, amount) select gst, 'B-S2', 1, 200 from t15.b;
+create temp table inv2 on commit drop as select public.create_invoice((select gst from t15.b), current_date - 30, current_date) id;
+select t15.ok((select seq = 6 from public.invoices where id = (select id from inv2)), 'second invoice in same series = 6 (guard-trigger conflict fixed)');
+insert into public.shipments (client_id, awb, weight, amount) select igst, 'B-S3', 1, 100 from t15.b;
+create temp table inv3 on commit drop as select public.create_invoice((select igst from t15.b), current_date - 30, current_date) id;
+select t15.ok((select seq = 7 and igst = 18 and cgst = 0 from public.invoices where id = (select id from inv3)), 'inter-state invoice = 7 with IGST');
+insert into public.shipments (client_id, awb, weight, amount) select ng, 'B-S4', 1, 50 from t15.b;
+create temp table inv4 on commit drop as select public.create_invoice((select ng from t15.b), current_date - 30, current_date) id;
+select t15.ok((select invoice_no = 'BOS/' || fy || '/0001' and total = 50 and cgst + sgst + igst = 0 from public.invoices where id = (select id from inv4)),
+  'Non-GST has its own series starting at 1, no tax');
+select t15.expect_fail($$select public.set_invoice_series((select fy from t15.b), 'gst', 'INV', 7)$$, 'cannot reuse used numbers', '{P0001}', '%backwards%');
+select t15.expect_fail($$select public.create_invoice((select gst from t15.b), current_date - 30, current_date)$$, 'no unbilled shipments -> no number reserved', '{P0001}', '%No unbilled%');
+select t15.ok((select next_number = 8 from public.invoice_series where kind = 'gst'), 'failed invoice did not consume a number');
+
+update public.shipments set amount = 1 where awb = 'B-S1';     -- RLS: billed rows not updatable (0 rows)
+delete from public.shipments where awb = 'B-S1';               -- RLS: 0 rows
+select t15.ok((select amount = 100 from public.shipments where awb = 'B-S1'), 'billed shipment frozen');
+select t15.expect_fail($$update public.invoices set total = 0$$, 'invoice not editable', '{42501}');
+select t15.expect_fail($$delete from public.invoices$$, 'invoice not deletable', '{42501}');
+
+select public.cancel_invoice((select id from inv2), 'test');
+select t15.ok((select status = 'cancelled' from public.invoices where id = (select id from inv2))
+          and (select invoice_id is null from public.shipments where awb = 'B-S2'), 'cancel frees shipments');
+select t15.expect_fail($$select public.cancel_invoice((select id from inv2))$$, 'cannot cancel twice', '{P0001}', '%already cancelled%');
+create temp table inv5 on commit drop as select public.create_invoice((select gst from t15.b), current_date - 30, current_date) id;
+select t15.ok((select seq = 8 from public.invoices where id = (select id from inv5)), 're-billing after cancel takes 8; 6 never reused');
+
+-- =====================================================================
+-- G. Empty search_path: signup, service_role, payment activation, webhook, admin
+-- =====================================================================
+reset role;
+insert into auth.users (instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
+                        raw_app_meta_data, raw_user_meta_data, created_at, updated_at)
+values ('00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-0000000000c1', 'authenticated', 'authenticated',
+        't15-c@test.local', '', now(), '{"provider":"email","providers":["email"]}', '{"business_name":"C Couriers"}', now(), now());
+select t15.ok((select business_name = 'C Couriers' and trial_ends_at > now() from public.profiles where id = '00000000-0000-0000-0000-0000000000c1'),
+  'signup trigger works with empty search_path');
+
+set local role service_role;
+select t15.ok((select count(*) from public.invoices) >= 5 and (select count(*) from public.shipments) > 0, 'service_role reads all tenants');
+insert into public.payments (owner_id, plan, amount_paise, includes_joining_fee, razorpay_order_id)
+values ('00000000-0000-0000-0000-0000000000c1', 'standard', 495600, true, 'order_t15_1'),
+       ('00000000-0000-0000-0000-0000000000c1', 'unlimited', 212400, false, 'order_t15_2');
+select t15.ok(public.activate_payment('order_t15_1', 'pay_t15_1', 495600) is true, 'payment activates once');
+select t15.ok(public.activate_payment('order_t15_1', 'pay_t15_1', 495600) is false, 'repeat activation ignored');
+select t15.expect_fail($$select public.activate_payment('order_t15_2', 'pay_t15_2', 1)$$, 'amount mismatch rejected', '{P0001}', '%Amount mismatch%');
+select t15.expect_fail($$select public.activate_payment('nope', 'p', 1)$$, 'unknown order rejected', '{P0001}', '%Unknown order%');
+select t15.ok((select plan = 'standard' and plan_expires_at > now() + interval '360 days' and joining_fee_paid
+               from public.profiles where id = '00000000-0000-0000-0000-0000000000c1'), 'plan + joining fee recorded');
+select t15.ok(public.record_webhook_event('evt_t15', 'payment.captured') is true and public.record_webhook_event('evt_t15', 'payment.captured') is false,
+  'webhook event idempotent');
+select public.admin_set_access('00000000-0000-0000-0000-0000000000c1', 'extend_trial');
+select t15.ok((select trial_ends_at > now() + interval '4 days' from public.profiles where id = '00000000-0000-0000-0000-0000000000c1'), 'admin_set_access works');
+reset role;
+
+-- =====================================================================
+-- H. Legacy kg rate-card fallback and ₹0 protection
+-- =====================================================================
+set local role authenticated;
+select t15.as_user('00000000-0000-0000-0000-0000000000c1');
+select t15.expect_fail($$select public.activate_payment('order_t15_2', 'x', 212400)$$, 'user cannot activate payment', '{42501}');
+insert into public.clients (name) values ('C1');
+insert into public.zones (name, destinations) values ('West', '{Pune}');
+insert into public.rate_cards (client_id, service, min_weight, max_weight, rate, extra_per_kg)
+  select id, 'Standard', 0, 1, 50, 0 from public.clients where name = 'C1'
+  union all select id, 'Standard', 1, 2, 70, 20 from public.clients where name = 'C1';
+insert into public.rate_cards (client_id, service, min_weight, max_weight, rate) values (null, 'Fast', 0, 5, 0);
+reset role;
+create table t15.c as select (select id from public.clients where name = 'C1') c1, (select id from public.zones where name = 'West') zw;
+grant select on t15.c to authenticated;
+set local role authenticated;
+select t15.as_user('00000000-0000-0000-0000-0000000000c1');
+
+insert into public.shipments (client_id, awb, destination, shipment_type, weight_f) select c1, 'L1', 'Pune', 'NON-DOX', 1.5 from t15.c;
+select t15.ok((select amount = 70 and rate_slab = 'older kg slab' and rate_zone is null from public.shipments where awb = 'L1'), 'legacy kg slab used when no zone-wise card');
+insert into public.shipments (client_id, awb, destination, shipment_type, weight_f) select c1, 'L2', 'Pune', 'NON-DOX', 3.2 from t15.c;
+select t15.ok((select amount = 110 from public.shipments where awb = 'L2'), 'legacy above top slab: 70 + ceil(1.2)*20 = 110');
+insert into public.shipments (client_id, awb, destination, shipment_type, weight_f) select c1, 'L3', 'Pune', 'DOX', 999.4 from t15.c;
+select t15.ok((select weight = 1.000 and amount = 50 from public.shipments where awb = 'L3'), 'DOX 999.4 g -> 1000 g -> 1 kg, lower boundary slab');
+select t15.expect_fail($$insert into public.shipments (client_id, awb, destination, shipment_type, service, weight_f) select c1, 'L4', 'Pune', 'DOX', 'Fast', 10 from t15.c$$,
+  'legacy ₹0 default rate never applied', '{P0001}', '%₹0%');
+select t15.expect_fail($$select public.save_rate_card((select c1 from t15.c), 'DOX', 'Standard', jsonb_build_array(jsonb_build_object('min_weight',0,'max_weight',500,'rates',jsonb_build_object((select zw from t15.c),0))))$$,
+  'zero zone rate rejected', '{P0001}', '%more than 0%');
+select t15.expect_fail($$select public.save_rate_card((select c1 from t15.c), 'DOX', 'Standard', jsonb_build_array(jsonb_build_object('min_weight',0,'max_weight',500,'rates',jsonb_build_object((select zw from t15.c),-5))))$$,
+  'negative zone rate rejected', '{P0001}', '%more than 0%');
+select public.save_rate_card((select c1 from t15.c), 'DOX', 'Standard', jsonb_build_array(jsonb_build_object('min_weight',0,'max_weight',500,'rates',jsonb_build_object((select zw from t15.c),25))));
+insert into public.shipments (client_id, awb, destination, shipment_type, weight_f) select c1, 'L5', 'Pune', 'DOX', 300 from t15.c;
+select t15.ok((select amount = 25 and rate_zone = 'West' from public.shipments where awb = 'L5'), 'zone-wise card takes over from legacy once saved');
+select t15.ok((select count(*) = 0 from public.shipments where shipment_type is not null and amount <= 0), 'no typed shipment priced at ₹0');
+
+-- =====================================================================
+-- I. Cross-tenant regression (C vs A and B)
+-- =====================================================================
+select t15.ok((select count(*) from public.invoices) = 0 and (select count(*) from public.invoice_series) = 0
+          and (select count(*) from public.payments where owner_id <> auth.uid()) = 0
+          and (select count(*) from public.clients) = 1 and (select count(*) from public.zones) = 1, 'C sees only own rows');
+select t15.expect_fail($$select public.create_invoice((select gst from t15.b), current_date - 30, current_date)$$, 'C cannot invoice B''s client', '{P0001}', 'Client not found');
+select t15.expect_fail($$select public.cancel_invoice((select id from inv1))$$, 'C cannot cancel B''s invoice', '{P0001}', '%not found%');
+select public.set_invoice_series((select fy from t15.b), 'gst', 'C', 100);
+select t15.expect_fail($$select public.save_rate_card((select c1 from t15.c), 'DOX', 'Fast', jsonb_build_array(jsonb_build_object('min_weight',0,'max_weight',1,'rates',jsonb_build_object((select zl from t15.ids),5))))$$,
+  'C cannot use A''s zone', '{P0001}', '%Unknown zone%');
+select t15.expect_fail($$insert into public.shipments (client_id, awb, weight, amount) select gst, 'C-X', 1, 1 from t15.b$$, 'C cannot use B''s client', '{23503,42501}');
+update public.invoice_series set next_number = 1;   -- no privilege path: expect_fail above already proved 42501; here just ensure nothing leaks
+reset role;
+select t15.ok((select next_number = 9 and prefix = 'INV' from public.invoice_series
+               where owner_id = '00000000-0000-0000-0000-0000000000b1' and kind = 'gst'), 'B''s series untouched by C');
+select t15.ok((select status = 'issued' from public.invoices where id = (select id from inv1)), 'B''s invoice untouched by C');
+
 do $$ begin raise notice 'ALL TESTS PASSED'; end $$;
 rollback;
