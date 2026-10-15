@@ -154,6 +154,7 @@ function Shipments() {
         <Input type="date" className="w-40" value={filter.from} onChange={(e) => setFilter({ ...filter, from: e.target.value })} />
         <Input type="date" className="w-40" value={filter.to} onChange={(e) => setFilter({ ...filter, to: e.target.value })} />
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={filter.review} onChange={(e) => setFilter({ ...filter, review: e.target.checked })} />Needs review only</label>
+        {selRows.length > 0 && <Button variant="destructive" size="sm" disabled={busy} onClick={delSelected}>Delete selected ({selRows.length})</Button>}
       </div>
       <div className="overflow-x-auto rounded-xl border bg-card">
         <table className="w-full text-sm">
