@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { useZones, errMsg } from "@/lib/hooks";
-import { normCity, registerCities } from "@/lib/cities";
+import { normCity, registerCities, type CityRes, type Candidate } from "@/lib/cities";
 import { CityZoneDialog } from "@/components/CityZoneDialog";
 import { StateSelect } from "@/components/StateSelect";
 import { PageHead, appHead } from "@/components/PageHead";
@@ -17,6 +17,7 @@ export const Route = createFileRoute("/_app/cities")({
 });
 
 const sel = "h-9 rounded-md border bg-background px-2 text-sm";
+const NEW_ZONE = "__new";
 type City = { id: string; name: string; state: string | null; district: string | null; source: string };
 type Mapping = { city_id: string; zone_id: string; cities: { name: string; state: string | null; district: string | null } | null };
 const place = (c: { state: string | null; district?: string | null } | null | undefined) =>
@@ -35,7 +36,10 @@ function CitiesPage() {
   const [dialog, setDialog] = useState(false);
   const [newZone, setNewZone] = useState("");
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
-  const [nc, setNc] = useState({ name: "", state: "", district: "" });
+  const [nc, setNc] = useState({ name: "", zone: "", state: "", district: "" });
+  const [ncZoneName, setNcZoneName] = useState("");
+  const [adv, setAdv] = useState(false);
+  const [amb, setAmb] = useState<{ input: string; zoneId: string; candidates: Candidate[]; pick: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
   const mappings = useQuery({
@@ -127,16 +131,75 @@ function CitiesPage() {
     toast.success(`Zone "${name}" deleted`); if (zoneFilter === id) setZoneFilter(""); refresh();
   }
 
+  const resetAdd = () => { setNc({ name: "", zone: "", state: "", district: "" }); setNcZoneName(""); setAmb(null); setAdv(false); };
+
+  // Assigns a resolved city to the chosen zone (upsert on owner_id,city_id: moving never duplicates).
+  async function finishAdd(cityId: string, label: string, zoneId: string) {
+    const prev = zoneByCity.get(cityId);
+    const { error } = await supabase.from("seller_city_zones")
+      .upsert({ city_id: cityId, zone_id: zoneId, updated_at: new Date().toISOString() }, { onConflict: "owner_id,city_id" });
+    if (error) throw error;
+    const to = zoneName(zoneId) ?? "the zone";
+    toast.success(prev && prev !== zoneId ? `${label} moved from ${zoneName(prev) ?? "another zone"} to ${to}` : `${label} assigned to ${to}. Waiting shipments were re-priced.`);
+    setQ(label.split(",")[0] ?? ""); resetAdd(); refresh();
+  }
+
+  async function ensureZone(): Promise<string> {
+    if (nc.zone !== NEW_ZONE) return nc.zone;
+    const name = ncZoneName.trim();
+    const { data, error } = await supabase.from("zones").insert({ name, sort_order: zones.length }).select("id").single();
+    if (error) throw error.code === "23505" ? new Error("A zone with this name already exists") : error;
+    setNc((p) => ({ ...p, zone: data.id })); setNcZoneName("");
+    await qc.invalidateQueries({ queryKey: ["zones"] });
+    return data.id as string;
+  }
+
   async function addCity() {
     if (normCity(nc.name).length < 2) { toast.error("Enter a city name"); return; }
-    if (!nc.state) { toast.error("Choose the state"); return; }
+    if (!nc.zone) { toast.error("Choose your zone"); return; }
+    if (nc.zone === NEW_ZONE && !ncZoneName.trim()) { toast.error("Enter the new zone name"); return; }
+    if (adv && nc.district.trim() && !nc.state) { toast.error("Choose the state for this district"); return; }
     setBusy(true);
-    const { data, error } = await supabase.rpc("add_city", { p_name: nc.name.trim(), p_state: nc.state, p_district: nc.district.trim() || null });
-    setBusy(false);
-    if (error) { toast.error(errMsg(error)); return; }
-    const r = (data as { city_id: string; existed: boolean; name: string; state: string }[])[0];
-    toast.success(r?.existed ? `${r.name}, ${r.state} already exists — using it` : `${r?.name} added to the city list`);
-    setNc({ name: "", state: "", district: "" }); setQ(r?.name ?? ""); refresh();
+    try {
+      const zoneId = await ensureZone();
+      if (adv && nc.state) {
+        const { data, error } = await supabase.rpc("add_city", { p_name: nc.name.trim(), p_state: nc.state, p_district: nc.district.trim() || null });
+        if (error) throw error;
+        const r = (data as { city_id: string; existed: boolean; name: string; state: string; district: string | null }[])[0];
+        if (!r) throw new Error("City could not be added");
+        await finishAdd(r.city_id, [r.name, r.district, r.state].filter(Boolean).join(", "), zoneId);
+        return;
+      }
+      const { data, error } = await supabase.rpc("register_cities", { p_names: [nc.name.trim()] });
+      if (error) throw error;
+      const r = (data as CityRes[])[0];
+      if (!r) throw new Error("City could not be checked");
+      if (r.status === "invalid") { toast.error(r.reason ?? "Not a valid city name"); return; }
+      if (r.status === "ambiguous") {
+        setAmb({ input: r.input, zoneId, candidates: r.candidates ?? [], pick: "" });
+        toast.message("Several cities share this name — choose which one you mean");
+        return;
+      }
+      if (!r.city_id) {
+        // unknown city and no active plan: nothing could be registered
+        toast.error("This city isn't in the list yet, and your plan is not active, so it can't be added. Renew your plan or pick an existing city.");
+        return;
+      }
+      await finishAdd(r.city_id, [r.city_name ?? nc.name.trim(), r.state].filter(Boolean).join(", "), zoneId);
+    } catch (e) { toast.error(errMsg(e)); } finally { setBusy(false); }
+  }
+
+  // Ambiguous name: explicit choice stored as the seller's own alias (seller_city_aliases), never guessed.
+  async function confirmAmbiguous() {
+    if (!amb?.pick) { toast.error("Choose which city you mean"); return; }
+    const c = amb.candidates.find((k) => k.id === amb.pick);
+    setBusy(true);
+    try {
+      const { error } = await supabase.from("seller_city_aliases")
+        .upsert({ alias_norm: normCity(amb.input), city_id: amb.pick }, { onConflict: "owner_id,alias_norm" });
+      if (error) throw error;
+      await finishAdd(amb.pick, [c?.name ?? amb.input, c?.district, c?.state].filter(Boolean).join(", "), amb.zoneId);
+    } catch (e) { toast.error(errMsg(e)); } finally { setBusy(false); }
   }
 
   const notReady = mappings.isError || search.isError;
@@ -203,11 +266,47 @@ function CitiesPage() {
         <section className="rounded-xl border bg-card p-4">
           <h2 className="mb-3 font-semibold">Add a city</h2>
           <form className="grid gap-2 sm:grid-cols-2" onSubmit={(e) => { e.preventDefault(); addCity(); }}>
-            <Input placeholder="City name" value={nc.name} maxLength={80} onChange={(e) => setNc({ ...nc, name: e.target.value })} />
-            <StateSelect value={nc.state} onChange={(state) => setNc({ ...nc, state })} />
-            <Input placeholder="District (optional)" value={nc.district} maxLength={60} onChange={(e) => setNc({ ...nc, district: e.target.value })} />
-            <Button type="submit" disabled={busy}>Add city</Button>
+            <label className="grid gap-1 text-sm">City name *
+              <Input placeholder="e.g. Nashik" value={nc.name} maxLength={80} required onChange={(e) => { setNc({ ...nc, name: e.target.value }); setAmb(null); }} />
+            </label>
+            <label className="grid gap-1 text-sm">My zone *
+              <select className={`${sel} w-full`} value={nc.zone} required onChange={(e) => setNc({ ...nc, zone: e.target.value })}>
+                <option value="">Choose zone…</option>
+                {zones.map((z) => <option key={z.id} value={z.id}>{z.name}</option>)}
+                <option value={NEW_ZONE}>+ New zone</option>
+              </select>
+            </label>
+            {nc.zone === NEW_ZONE && (
+              <Input className="sm:col-span-2" placeholder="New zone name, e.g. West" value={ncZoneName} maxLength={60} onChange={(e) => setNcZoneName(e.target.value)} />
+            )}
+            <div className="sm:col-span-2">
+              <button type="button" className="text-xs text-muted-foreground underline" aria-expanded={adv} onClick={() => setAdv(!adv)}>
+                {adv ? "▾" : "▸"} Advanced: State / District (optional)
+              </button>
+              {adv && (
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                  <StateSelect value={nc.state} onChange={(state) => setNc({ ...nc, state })} />
+                  <Input placeholder="District (optional)" value={nc.district} maxLength={60} onChange={(e) => setNc({ ...nc, district: e.target.value })} />
+                  <p className="text-xs text-muted-foreground sm:col-span-2">Only needed to tell apart cities with the same name.</p>
+                </div>
+              )}
+            </div>
+            <Button type="submit" className="sm:col-span-2" disabled={busy || !!amb}>{busy ? "Saving…" : "Add & assign"}</Button>
           </form>
+          {amb && (
+            <div className="mt-3 space-y-2 rounded-lg border border-destructive/40 p-2 text-sm">
+              <p className="font-medium">"{amb.input}" matches several cities. Which one do you mean?</p>
+              <select aria-label={`Which ${amb.input}`} className={`${sel} w-full`} value={amb.pick} onChange={(e) => setAmb({ ...amb, pick: e.target.value })}>
+                <option value="">Choose…</option>
+                {amb.candidates.map((k) => <option key={k.id} value={k.id}>{k.name}{k.district ? `, ${k.district}` : ""}{k.state ? `, ${k.state}` : " (state unknown)"}</option>)}
+              </select>
+              <div className="flex gap-2">
+                <Button size="sm" disabled={busy || !amb.pick} onClick={confirmAmbiguous}>Confirm & assign</Button>
+                <Button size="sm" variant="ghost" onClick={() => setAmb(null)}>Cancel</Button>
+              </div>
+              <p className="text-xs text-muted-foreground">Your choice is remembered for your account only.</p>
+            </div>
+          )}
           {!!dupes.data?.length && (
             <div className="mt-3 rounded-lg border bg-muted/40 p-2 text-sm">
               <p className="mb-1 font-medium">Already in the city list:</p>
