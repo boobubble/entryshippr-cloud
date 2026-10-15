@@ -1,44 +1,35 @@
-# City & Zone Master — "Add a city" redesign
+# Simplify City & Zone Management (V2, development only)
 
-## Finding: does add_city require state?
-Yes. `add_city(p_name, p_state, p_district)` rejects a missing/invalid state and matches on (name, state, district). It cannot do name-only entry.
+## What exists today
+- Import already detects destination cities (`register_cities`) and flags unmapped/ambiguous ones; `CityZoneDialog` assigns zones one city at a time.
+- City & Zone Master, CityZoneDialog and bulk assign all write `seller_city_zones` directly via `upsert(... onConflict owner_id,city_id)`.
+- The schema file grants only column-level rights: INSERT (city_id, zone_id, updated_at), UPDATE (zone_id, updated_at), SELECT, DELETE. The "permission denied" means the dev database's grants don't match this (or the upsert path trips them). Your pasted `GRANT INSERT, UPDATE` on the whole table would also allow writing `owner_id` — not recommended.
 
-However, the existing `register_cities(p_names text[])` RPC already does exactly what name-only entry needs:
-- resolves via `city_resolve` (seller confirmations → global name → global aliases),
-- reuses an existing global city when exactly one matches,
-- returns `ambiguous` + candidate list (name/state/district) when several match — never guesses,
-- registers an unknown valid name globally (state NULL, source `user`) via `ensure_city`, with ON CONFLICT reuse,
-- registers only when the seller has an active plan/trial (expired = resolve only).
+## Backend fix (smallest safe option, needs your approval)
+One new SQL function, no table/RLS changes:
 
-**Proposed backend change: none.** Name-only entry is built on `register_cities`; `add_city` is kept for the optional Advanced path. No SQL, table, RLS or migration changes.
+`assign_city_zones(p_items jsonb)` — SECURITY DEFINER, empty search_path, EXECUTE granted to `authenticated` only.
+- `owner_id` is always `auth.uid()` — never taken from input.
+- Rejects any zone not owned by the caller and any unknown city_id.
+- Requires an active trial/plan (same check `register_cities` uses).
+- Upserts all rows in one transaction on (owner_id, city_id) → moving never duplicates.
+- Existing triggers then re-price Needs Review shipments (City → Zone → Rate Card → Slab). Invoiced shipments untouched.
+- Security tests added: cross-tenant zone rejected, owner spoofing impossible, expired plan blocked.
 
-## New form
-```text
-City name *        [ Nashik            ]   (live list of matching global cities)
-My zone *          [ West          v ]     (from seller's own zones; "+ New zone")
-> Advanced: State / District (optional — only to tell same-name cities apart)
-[ Add & assign ]
-```
+I'll give you the SQL file to run manually in the dev SQL Editor. Alternative if you prefer: just re-run the existing three column-level GRANT lines (no new function).
 
-## Submit flow
-1. Validate city name and zone (create zone first if "+ New zone").
-2. If Advanced state is filled → `add_city(name, state, district)` (reuses existing or adds a new global city).
-   Else → `register_cities([name])`:
-   - `mapped`/`unmapped` with city_id → use it (existing global city reused).
-   - `ambiguous` → show inline "Which one?" picker with candidates (name, district, state). Seller must pick; on pick, save the confirmation to `seller_city_aliases` (own account only).
-   - `invalid` → show the reason; nothing saved.
-   - no city_id because plan expired → show read-only message.
-3. Upsert `seller_city_zones (city_id, zone_id)` on (owner_id, city_id). If the city was already in another zone, toast "Moved from X to Y".
-4. Existing database triggers re-price that seller's Needs Review shipments automatically; refresh lists and the review counts.
+## Frontend
+1. **One shared popup** `CityZoneDialog` rewritten as "Assign zones to new cities":
+   - Lists every unmapped city with a zone dropdown (seller's zones) + "+ New zone" inline.
+   - "Apply to selected" to give many cities the same zone.
+   - Ambiguous names show a State/District picker (choice saved to `seller_city_aliases`).
+   - "Save all" → single `assign_city_zones` call; "Skip" → shipments stay Needs Review at ₹0.
+2. **Import**: after file parse, if any unmapped/ambiguous cities, open the popup automatically; on save, refresh the city map so the preview reprices. Column mapping, weight logic and duplicate detection unchanged.
+3. **City & Zone Master**: Add City (name + zone, Advanced State/District only for ambiguity), bulk assign and move all call the same `assign_city_zones`.
+4. Never auto-pick a zone; no defaults.
 
-## Guarantees kept
-- Global registry shared; zone mappings and confirmations private (existing RLS, `owner_id = auth.uid()`).
-- Never guesses a state; same-name cities always need explicit seller choice.
-- No duplicate cities (resolve-first + unique index + ON CONFLICT).
-- Pricing chain City → Seller Zone → Rate Card → Slab → Amount unchanged.
+## Unchanged
+Pricing chain, invoice safeguards (amount ≤ 0 blocked), historical invoice amounts, Excel mapping, duplicate detection. Production and entrysetu.in never touched; nothing published.
 
-## Technical details
-- Files: `src/routes/_app/cities.tsx` only (form state `{name, zoneId, state, district}`, collapsible Advanced section, ambiguous-candidate picker). `StateSelect` reused inside Advanced. `CityZoneDialog`, import and shipments untouched.
-- Zone dropdown uses the existing seller zones query (RLS-scoped).
-- Known limitation: a name-only new city is stored with no state; it can later become ambiguous if a same-name city in a real state is added, at which point the seller is asked to confirm once. Optional later hardening (not proposed now): an RPC that lets the creating seller attach a state to a state-less city they created.
-- Verification: type check, existing tests, Playwright on sign-in page only (authenticated UI can't be signed into from here).
+## Order
+SQL file + tests → you run it in dev → frontend changes → tsgo + tests → you verify in preview.
