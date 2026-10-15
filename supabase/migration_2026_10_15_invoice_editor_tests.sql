@@ -207,27 +207,57 @@ reset role;
 set local role authenticated;
 select tie.as_user('00000000-0000-0000-0000-0000000e0aa1');
 insert into tie.ids select 'dg', public.create_invoice_draft((select a_in from tie.c), current_date - 30, current_date);
-reset role;
--- trusted role, flag NOT armed: cannot bill a reserved shipment directly
-select tie.expect_fail($$update public.shipments set invoice_id = draft_invoice_id, draft_invoice_id = null
-   where draft_invoice_id = (select id from tie.ids where k = 'dg')$$, 'hand-over without finalize blocked', '{P0001}', '%only be billed by finalizing%');
--- flag armed but target invoice still a draft (not issued): blocked
+
+-- I3. Forged session flag gives no authority (old design): seller sets it, still blocked.
 select set_config('entrysetu.finalizing', (select id::text from tie.ids where k = 'dg'), true);
 select tie.expect_fail($$update public.shipments set invoice_id = draft_invoice_id, draft_invoice_id = null
-   where draft_invoice_id = (select id from tie.ids where k = 'dg')$$, 'hand-over to non-issued invoice blocked', '{P0001}', '%only be billed by finalizing%');
--- flag armed for a different invoice: blocked
-select set_config('entrysetu.finalizing', (select id::text from tie.ids where k = 'd1'), true);
-select tie.expect_fail($$update public.shipments set invoice_id = (select id from tie.ids where k = 'd1'), draft_invoice_id = null
-   where draft_invoice_id = (select id from tie.ids where k = 'dg')$$, 'move reserved shipment to another issued invoice blocked', '{P0001}', '%draft invoice%');
+   where awb = 'TIE3'$$, 'seller hand-over with forged session flag blocked', '{42501,P0001}');
+-- Seller cannot reach the private grant table or forge a grant row.
+select tie.expect_fail($$insert into entrysetu_private.shipment_transfer_grants values (txid_current(), (select id from tie.ids where k = 'dg'), 'finalize')$$,
+  'seller cannot forge transfer grant', '{42501}');
+select tie.expect_fail($$select * from entrysetu_private.shipment_transfer_grants$$, 'seller cannot read transfer grants', '{42501}');
 select set_config('entrysetu.finalizing', '', true);
--- seller cannot forge it either
+
+-- I4. Trusted maintenance role (service_role) cannot touch reserved shipments.
+reset role;
+set local role service_role;
+select set_config('entrysetu.finalizing', (select id::text from tie.ids where k = 'dg'), true);
+select tie.expect_fail($$update public.shipments set invoice_id = draft_invoice_id, draft_invoice_id = null where awb = 'TIE3'$$,
+  'service_role hand-over (forged flag) blocked', '{P0001}', '%only be billed by finalizing%');
+select tie.expect_fail($$update public.shipments set invoice_id = (select id from tie.ids where k = 'd1'), draft_invoice_id = null where awb = 'TIE3'$$,
+  'service_role move to another issued invoice blocked', '{P0001}', '%only be billed by finalizing%');
+select tie.expect_fail($$update public.shipments set draft_invoice_id = null where awb = 'TIE3'$$,
+  'service_role release without grant blocked', '{P0001}', '%draft invoice%');
+select tie.expect_fail($$update public.shipments set amount = 1 where awb = 'TIE3'$$,
+  'service_role edit of reserved shipment blocked', '{P0001}', '%draft invoice%');
+select tie.expect_fail($$delete from public.shipments where awb = 'TIE3'$$,
+  'service_role delete of reserved shipment blocked', '{P0001}', '%draft invoice%');
+select tie.expect_fail($$delete from public.invoices where id = (select id from tie.ids where k = 'dg')$$,
+  'service_role deleting draft directly cannot orphan-release shipments', '{P0001}', '%draft invoice%');
+select tie.expect_fail($$insert into entrysetu_private.shipment_transfer_grants values (txid_current(), (select id from tie.ids where k = 'dg'), 'release')$$,
+  'service_role cannot forge transfer grant', '{42501}');
+select set_config('entrysetu.finalizing', '', true);
+reset role;
+
+-- I5. Even with a grant, only the exact transition passes (owner-level session).
+insert into entrysetu_private.shipment_transfer_grants values (txid_current(), (select id from tie.ids where k = 'dg'), 'finalize');
+select tie.expect_fail($$update public.shipments set invoice_id = draft_invoice_id, draft_invoice_id = null where awb = 'TIE3'$$,
+  'finalize grant but invoice not issued blocked', '{P0001}', '%only be billed by finalizing%');
+delete from entrysetu_private.shipment_transfer_grants where xact_id = txid_current();
+insert into entrysetu_private.shipment_transfer_grants values (txid_current(), (select id from tie.ids where k = 'dg'), 'release');
+select tie.expect_fail($$update public.shipments set draft_invoice_id = null, amount = amount + 1 where awb = 'TIE3'$$,
+  'release grant cannot carry other column changes', '{P0001}', '%draft invoice%');
+delete from entrysetu_private.shipment_transfer_grants where xact_id = txid_current();
+select tie.ok((select count(*) = 0 from entrysetu_private.shipment_transfer_grants), 'no grant rows left behind by finalize/save/discard');
+
+-- I6. Authorized workflow: discard (release) works and leaves no grant behind.
 set local role authenticated;
 select tie.as_user('00000000-0000-0000-0000-0000000e0aa1');
-select tie.expect_fail($$update public.shipments set invoice_id = draft_invoice_id, draft_invoice_id = null
-   where draft_invoice_id = (select id from tie.ids where k = 'dg')$$, 'seller direct hand-over blocked', '{42501,P0001}');
-select tie.ok(coalesce(current_setting('entrysetu.finalizing', true), '') = '', 'finalize flag not left armed in this session');
--- discard (not finalize) so no extra invoice number is consumed and later tests see TIE3 unbilled
 select public.discard_invoice_draft((select id from tie.ids where k = 'dg'));
+reset role;
+select tie.ok((select count(*) = 0 from entrysetu_private.shipment_transfer_grants), 'discard left no grant rows');
+set local role authenticated;
+select tie.as_user('00000000-0000-0000-0000-0000000e0aa1');
 select tie.ok((select draft_invoice_id is null and invoice_id is null from public.shipments where awb = 'TIE3'), 'forgery attempts left TIE3 untouched and released');
 
 -- J. Issued invoice immutable for every role
