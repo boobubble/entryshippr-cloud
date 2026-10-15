@@ -58,7 +58,15 @@ create table if not exists public.cities (
   created_by uuid references auth.users(id) on delete set null,
   created_at timestamptz not null default now()
 );
-create unique index if not exists cities_norm_state_uidx on public.cities (name_norm, coalesce(lower(state), ''));
+-- Optional district (needed to tell apart same-name cities inside one state).
+alter table public.cities add column if not exists district text;
+alter table public.cities drop constraint if exists cities_district_chk;
+alter table public.cities add constraint cities_district_chk check (
+  district is null or (state is not null and char_length(btrim(district)) between 2 and 60 and district ~ '[A-Za-z]'));
+-- One row per (name, state, district). ON CONFLICT targets below use these exact expressions.
+drop index if exists public.cities_norm_state_uidx;
+create unique index if not exists cities_norm_place_uidx
+  on public.cities (name_norm, coalesce(lower(state), ''), coalesce(lower(district), ''));
 create index if not exists cities_norm_idx on public.cities (name_norm);
 
 create table if not exists public.city_aliases (
