@@ -14,7 +14,7 @@ type ClientDetails = Omit<BusinessDetails, "business_name"> & { name?: string | 
 type Money = number | string;
 
 export type InvoiceDocumentProps = {
-  seller?: BusinessDetails | null;
+  seller?: BusinessDetails | null | undefined;
   invoice: {
     invoice_no: string;
     invoice_date: string;
@@ -103,7 +103,7 @@ export function InvoiceDocument({ seller, invoice: inv, shipments }: InvoiceDocu
               <td>{up(s.destination)}</td>
               <td>{s.service}</td>
               <td>{s.billing_weight != null && s.weight_unit ? `${+s.billing_weight} ${s.weight_unit}` : `${s.weight} kg`}{s.shipment_type && <span className="mt-1 block text-xs">{s.shipment_type}</span>}</td>
-              <td className="text-right tabular-nums">{inr(s.amount)}</td>
+              <td className="text-right tabular-nums">{inr(Number(s.amount))}</td>
             </tr>
           ))}
         </tbody>
@@ -111,11 +111,11 @@ export function InvoiceDocument({ seller, invoice: inv, shipments }: InvoiceDocu
 
       <footer className="invoice-footer pt-5">
         <dl className="ml-auto w-64 space-y-2 tabular-nums">
-          <div className="flex justify-between gap-4"><dt>Subtotal</dt><dd>{inr(inv.subtotal)}</dd></div>
-          {inv.kind === "gst" && Number(inv.igst) > 0 && <div className="flex justify-between gap-4"><dt>IGST 18%</dt><dd>{inr(inv.igst)}</dd></div>}
-          {inv.kind === "gst" && Number(inv.cgst) > 0 && <div className="flex justify-between gap-4"><dt>CGST 9%</dt><dd>{inr(inv.cgst)}</dd></div>}
-          {inv.kind === "gst" && Number(inv.sgst) > 0 && <div className="flex justify-between gap-4"><dt>SGST 9%</dt><dd>{inr(inv.sgst)}</dd></div>}
-          <div className="flex justify-between gap-4 border-t pt-3 text-base font-bold"><dt>Grand Total</dt><dd>{inr(inv.total)}</dd></div>
+          <div className="flex justify-between gap-4"><dt>Subtotal</dt><dd>{inr(Number(inv.subtotal))}</dd></div>
+          {inv.kind === "gst" && Number(inv.igst) > 0 && <div className="flex justify-between gap-4"><dt>IGST 18%</dt><dd>{inr(Number(inv.igst))}</dd></div>}
+          {inv.kind === "gst" && Number(inv.cgst) > 0 && <div className="flex justify-between gap-4"><dt>CGST 9%</dt><dd>{inr(Number(inv.cgst))}</dd></div>}
+          {inv.kind === "gst" && Number(inv.sgst) > 0 && <div className="flex justify-between gap-4"><dt>SGST 9%</dt><dd>{inr(Number(inv.sgst))}</dd></div>}
+          <div className="flex justify-between gap-4 border-t pt-3 text-base font-bold"><dt>Grand Total</dt><dd>{inr(Number(inv.total))}</dd></div>
         </dl>
         <p className="mt-10 border-t pt-4 text-xs text-muted-foreground">SAC 996812 · Courier services. This is a computer-generated invoice.</p>
       </footer>
