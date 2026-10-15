@@ -638,6 +638,9 @@ begin
     gst_rate = case when v_kind = 'gst' then coalesce((p_header->>'gst_rate')::numeric, nullif(v.gst_rate, 0), 18) else 0 end,
     tax_mode = public.invoice_tax_mode(v_uid, v.client_id, v_kind),
     round_off = coalesce((p_header->>'round_off')::numeric, 0),
+    -- taxes are rewritten by invoice_recalc below; clear them so a GST -> Non-GST
+    -- switch satisfies the existing "Non-GST carries no tax" check mid-call
+    cgst = 0, sgst = 0, igst = 0,
     notes = nullif(btrim(coalesce(p_header->>'notes', '')), ''),
     numbering = v_numbering,
     requested_invoice_no = v_req
