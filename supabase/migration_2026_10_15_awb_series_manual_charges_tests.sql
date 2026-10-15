@@ -297,7 +297,7 @@ select tam.ok((select count(*) = 0 from (select * from tam.ship_before except se
 select tam.ok((select count(*) = 0 from (select * from tam.inv_before except select * from public.invoices) d), 'existing invoices unchanged');
 
 do $$ declare v_n int := (select count(*) from tam.log); begin
-  if v_n <> __EXPECTED__ then raise exception 'FAIL: % assertions passed, expected __EXPECTED__', v_n; end if;
+  if v_n <> 85 then raise exception 'FAIL: % assertions passed, expected 85', v_n; end if;
   raise notice 'ALL AWB SERIES AND MANUAL CHARGE TESTS PASSED (% assertions)', v_n;
 end $$;
 rollback;
