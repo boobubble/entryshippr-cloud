@@ -4,7 +4,7 @@ export type ShipmentType = "DOX" | "NON-DOX";
 export type FieldKey = "awb" | "date" | "client" | "type" | "destination" | "service" | "pieces" | "amount" | "w1" | "w2" | "w3" | "w4";
 export type Mapping = Record<FieldKey, number | null> & {
   /** "1308": weight + auditedWeight are grams for every row; NON-DOX rows convert them to kg. */
-  format?: "1308";
+  format?: "1308" | undefined;
 }; // column index (0 = A) or null
 
 export const FIELD_LABELS: Record<FieldKey, string> = {
