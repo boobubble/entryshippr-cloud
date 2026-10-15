@@ -1,10 +1,11 @@
 -- =====================================================================
--- EntrySetu V2 — Phase 1: Client Name Mapping (Excel aliases / renamed
--- clients), raw Excel client name, Safe Client Delete.
+-- EntrySetu V2 — Phase 1: Client Rename + Excel Alias Mapping,
+-- raw Excel client name, invoice bill-to snapshots.
 -- DEVELOPMENT project zfvnqcyqxxipjaugkmvf ONLY.
 -- FOR MANUAL REVIEW — run in the Supabase SQL Editor after all earlier
 -- 2026-10-15 migrations. Re-runnable: creates only what is missing, never
--- drops tables or data. Client Merge is NOT part of this file.
+-- drops tables or data. Safe Delete and Client Merge are NOT part of this
+-- file; the existing client DELETE permission is left unchanged.
 -- =====================================================================
 begin;
 
@@ -21,8 +22,9 @@ create table if not exists public.client_name_mappings (
   -- One mapping per normalised raw name per seller. A conflicting INSERT, or an
   -- UPDATE that renames onto an existing alias, fails with 23505 — never overwrites.
   primary key (owner_id, alias_norm),
-  -- Tenant-scoped; a mapped client can never be deleted, so mappings never dangle.
-  foreign key (owner_id, client_id) references public.clients (owner_id, id) on delete restrict
+  -- Tenant-scoped. ON DELETE CASCADE keeps the existing Delete button working
+  -- and guarantees a mapping never points to a deleted client.
+  foreign key (owner_id, client_id) references public.clients (owner_id, id) on delete cascade
 );
 create index if not exists client_name_mappings_client_idx on public.client_name_mappings (owner_id, client_id);
 
@@ -88,71 +90,55 @@ grant insert (source_client_name) on public.shipments to authenticated;
 revoke update (source_client_name) on public.shipments from authenticated;
 
 -- ---------------------------------------------------------------------
--- 3. Safe client delete
---    Direct DELETE revoked; delete_client():
---      * uses auth.uid() — no owner parameter, nothing to spoof
---      * requires an active plan
---      * locks the client row FOR UPDATE: concurrent inserts of shipments,
---        invoices, mappings or rate cards take KEY SHARE on it and wait, so the
---        counts cannot go stale; FK RESTRICT remains the final safety net
---      * refuses with shipments, invoices or mappings (deactivate instead)
---      * deletes rate cards only when the caller confirms their exact count
---    Deactivate keeps using the existing UPDATE of clients.active.
+-- 3. Invoice bill-to snapshots
+--    Each invoice keeps the client's billing name, GSTIN, state and address
+--    as they were when it was issued, so renaming or editing a client never
+--    changes a finalized invoice. Numbers, amounts and GST are untouched.
 -- ---------------------------------------------------------------------
-revoke delete on public.clients from authenticated;
+alter table public.invoices add column if not exists bill_to_name    text;
+alter table public.invoices add column if not exists bill_to_gstin   text;
+alter table public.invoices add column if not exists bill_to_state   text;
+alter table public.invoices add column if not exists bill_to_address text;
 
-drop function if exists public.client_usage(uuid);
-create function public.client_usage(p_client_id uuid)
-returns table (shipments bigint, billed_shipments bigint, invoices bigint, rate_cards bigint, mappings bigint)
-language sql stable security invoker set search_path = '' as $$
-  select
-    (select pg_catalog.count(*) from public.shipments s where s.client_id = p_client_id and s.owner_id = auth.uid()),
-    (select pg_catalog.count(*) from public.shipments s where s.client_id = p_client_id and s.owner_id = auth.uid() and s.invoice_id is not null),
-    (select pg_catalog.count(*) from public.invoices i where i.client_id = p_client_id and i.owner_id = auth.uid()),
-    (select pg_catalog.count(*) from public.rate_slabs r where r.client_id = p_client_id and r.owner_id = auth.uid())
-      + (select pg_catalog.count(*) from public.rate_cards r where r.client_id = p_client_id and r.owner_id = auth.uid()),
-    (select pg_catalog.count(*) from public.client_name_mappings m where m.client_id = p_client_id and m.owner_id = auth.uid())
-$$;
-revoke all on function public.client_usage(uuid) from public, anon;
-grant execute on function public.client_usage(uuid) to authenticated, service_role;
-
-drop function if exists public.delete_client(uuid, integer);
-create function public.delete_client(p_client_id uuid, p_confirm_rate_cards integer default 0)
-returns void language plpgsql security definer set search_path = '' as $$
-declare
-  v_uid uuid := auth.uid();
-  v_ship bigint; v_inv bigint; v_map bigint; v_rc bigint;
+-- Fill on insert (create_invoice inserts invoices; it is not modified).
+create or replace function public.invoices_snapshot_client()
+returns trigger language plpgsql security invoker set search_path = '' as $$
 begin
-  if v_uid is null then raise exception 'Not signed in' using errcode = '42501'; end if;
-  if not public.has_access() then
-    raise exception 'Your plan has expired — renew to make changes' using errcode = '42501';
-  end if;
-
-  perform 1 from public.clients c where c.id = p_client_id and c.owner_id = v_uid for update;
-  if not found then raise exception 'Client not found' using errcode = 'P0002'; end if;
-
-  select pg_catalog.count(*) into v_ship from public.shipments s where s.owner_id = v_uid and s.client_id = p_client_id;
-  select pg_catalog.count(*) into v_inv  from public.invoices  i where i.owner_id = v_uid and i.client_id = p_client_id;
-  select pg_catalog.count(*) into v_map  from public.client_name_mappings m where m.owner_id = v_uid and m.client_id = p_client_id;
-  if v_ship > 0 or v_inv > 0 then
-    raise exception 'Client has % shipment(s) and % invoice(s) — deactivate it instead', v_ship, v_inv using errcode = 'P0001';
-  end if;
-  if v_map > 0 then
-    raise exception 'Client is used by % name mapping(s) — remove or re-point them first', v_map using errcode = 'P0001';
-  end if;
-
-  select (select pg_catalog.count(*) from public.rate_slabs r where r.owner_id = v_uid and r.client_id = p_client_id)
-       + (select pg_catalog.count(*) from public.rate_cards r where r.owner_id = v_uid and r.client_id = p_client_id)
-    into v_rc;
-  if v_rc > 0 and v_rc is distinct from p_confirm_rate_cards::bigint then
-    raise exception 'Client has % rate card row(s) — confirm deleting exactly % to continue', v_rc, v_rc using errcode = 'P0001';
-  end if;
-
-  delete from public.rate_slabs r where r.owner_id = v_uid and r.client_id = p_client_id;
-  delete from public.rate_cards r where r.owner_id = v_uid and r.client_id = p_client_id;
-  delete from public.clients c where c.id = p_client_id and c.owner_id = v_uid;
+  select c.name, nullif(c.gstin, ''), c.state, c.address
+    into new.bill_to_name, new.bill_to_gstin, new.bill_to_state, new.bill_to_address
+    from public.clients c where c.id = new.client_id and c.owner_id = new.owner_id;
+  return new;
 end $$;
-revoke all on function public.delete_client(uuid, integer) from public, anon;
-grant execute on function public.delete_client(uuid, integer) to authenticated;
+revoke all on function public.invoices_snapshot_client() from public, anon, authenticated;
+drop trigger if exists invoices_snapshot_client on public.invoices;
+create trigger invoices_snapshot_client before insert on public.invoices
+  for each row execute function public.invoices_snapshot_client();
+
+-- Once set, a snapshot can never change (empty -> value is allowed once, for the backfill).
+create or replace function public.invoices_snapshot_guard()
+returns trigger language plpgsql security invoker set search_path = '' as $$
+begin
+  if (old.bill_to_name is not null and new.bill_to_name is distinct from old.bill_to_name)
+     or (old.bill_to_name is not null and (new.bill_to_gstin is distinct from old.bill_to_gstin
+         or new.bill_to_state is distinct from old.bill_to_state
+         or new.bill_to_address is distinct from old.bill_to_address)) then
+    raise exception 'Invoice billing details are frozen once issued' using errcode = '42501';
+  end if;
+  return new;
+end $$;
+revoke all on function public.invoices_snapshot_guard() from public, anon, authenticated;
+drop trigger if exists invoices_snapshot_guard on public.invoices;
+create trigger invoices_snapshot_guard before update on public.invoices
+  for each row execute function public.invoices_snapshot_guard();
+
+-- Backfill existing invoices once with the client's CURRENT details (only rows
+-- without a snapshot; re-running changes nothing). Run this migration BEFORE
+-- renaming any client so old invoices freeze the original names.
+update public.invoices i
+   set bill_to_name = c.name, bill_to_gstin = nullif(c.gstin, ''), bill_to_state = c.state, bill_to_address = c.address
+  from public.clients c
+ where i.bill_to_name is null and c.id = i.client_id and c.owner_id = i.owner_id;
+
+-- Sellers can still only SELECT invoices (existing grant); no write grant is added.
 
 commit;

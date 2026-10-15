@@ -31,7 +31,7 @@ function Invoices() {
     queryFn: async () => {
       const { data, error } = await supabase.from("invoices").select("*, clients(name)").order("created_at", { ascending: false });
       if (error) throw error;
-      return data as { id: string; invoice_no: string; invoice_date: string; total: number; kind: "gst" | "nongst"; status: "issued" | "cancelled"; clients: { name: string } | null }[];
+      return data as { id: string; invoice_no: string; invoice_date: string; total: number; kind: "gst" | "nongst"; status: "issued" | "cancelled"; clients: { name: string } | null; bill_to_name?: string | null }[];
     },
   });
 
@@ -72,7 +72,7 @@ function Invoices() {
           <thead className="bg-muted text-left"><tr><th className="p-3">Invoice</th><th className="p-3">Date</th><th className="p-3">Client</th><th className="p-3">Type</th><th className="p-3 text-right">Total</th><th /></tr></thead>
           <tbody>
             {invoices.map((i) => (
-              <tr key={i.id} className="border-t"><td className="p-3"><Link to="/invoices/$id" params={{ id: i.id }} className="text-primary underline">{i.invoice_no}</Link></td><td className="p-3">{i.invoice_date}</td><td className="p-3">{up(i.clients?.name)}</td><td className="p-3">{i.kind === "gst" ? "GST" : "Non-GST"}{i.status === "cancelled" && <span className="ml-2 text-destructive">Cancelled</span>}</td><td className="p-3 text-right">{inr(i.total)}</td>
+              <tr key={i.id} className="border-t"><td className="p-3"><Link to="/invoices/$id" params={{ id: i.id }} className="text-primary underline">{i.invoice_no}</Link></td><td className="p-3">{i.invoice_date}</td><td className="p-3">{up(i.bill_to_name ?? i.clients?.name)}</td><td className="p-3">{i.kind === "gst" ? "GST" : "Non-GST"}{i.status === "cancelled" && <span className="ml-2 text-destructive">Cancelled</span>}</td><td className="p-3 text-right">{inr(i.total)}</td>
                 <td className="p-3 text-right">{i.status === "issued" && <Button size="sm" variant="ghost" onClick={() => cancel(i.id)}>Cancel</Button>}</td></tr>
             ))}
             {!invoices.length && <tr><td colSpan={6} className="p-6 text-center text-muted-foreground">No invoices yet.</td></tr>}
