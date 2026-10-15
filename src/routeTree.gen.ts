@@ -25,6 +25,7 @@ import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppShipmentsRouteImport } from './routes/_app/shipments'
 import { Route as AppInvoicesIndexRouteImport } from './routes/_app/invoices.index'
 import { Route as AppInvoicesIdRouteImport } from './routes/_app/invoices.$id'
+import { Route as ApiPublicCitySyncRouteImport } from './routes/api/public/city-sync'
 import { Route as ApiPublicRazorpayWebhookRouteImport } from './routes/api/public/razorpay-webhook'
 
 const IndexRoute = IndexRouteImport.update({
@@ -106,6 +107,11 @@ const AppInvoicesIdRoute = AppInvoicesIdRouteImport.update({
   path: '/$id',
   getParentRoute: () => AppInvoicesRoute,
 } as any)
+const ApiPublicCitySyncRoute = ApiPublicCitySyncRouteImport.update({
+  id: '/api/public/city-sync',
+  path: '/api/public/city-sync',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiPublicRazorpayWebhookRoute =
   ApiPublicRazorpayWebhookRouteImport.update({
     id: '/api/public/razorpay-webhook',
@@ -128,6 +134,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof AppSettingsRoute
   '/shipments': typeof AppShipmentsRoute
   '/invoices/$id': typeof AppInvoicesIdRoute
+  '/api/public/city-sync': typeof ApiPublicCitySyncRoute
   '/api/public/razorpay-webhook': typeof ApiPublicRazorpayWebhookRoute
   '/invoices/': typeof AppInvoicesIndexRoute
 }
@@ -145,6 +152,7 @@ export interface FileRoutesByTo {
   '/settings': typeof AppSettingsRoute
   '/shipments': typeof AppShipmentsRoute
   '/invoices/$id': typeof AppInvoicesIdRoute
+  '/api/public/city-sync': typeof ApiPublicCitySyncRoute
   '/api/public/razorpay-webhook': typeof ApiPublicRazorpayWebhookRoute
   '/invoices': typeof AppInvoicesIndexRoute
 }
@@ -165,6 +173,7 @@ export interface FileRoutesById {
   '/_app/settings': typeof AppSettingsRoute
   '/_app/shipments': typeof AppShipmentsRoute
   '/_app/invoices/$id': typeof AppInvoicesIdRoute
+  '/api/public/city-sync': typeof ApiPublicCitySyncRoute
   '/api/public/razorpay-webhook': typeof ApiPublicRazorpayWebhookRoute
   '/_app/invoices/': typeof AppInvoicesIndexRoute
 }
@@ -185,6 +194,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/shipments'
     | '/invoices/$id'
+    | '/api/public/city-sync'
     | '/api/public/razorpay-webhook'
     | '/invoices/'
   fileRoutesByTo: FileRoutesByTo
@@ -202,6 +212,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/shipments'
     | '/invoices/$id'
+    | '/api/public/city-sync'
     | '/api/public/razorpay-webhook'
     | '/invoices'
   id:
@@ -221,6 +232,7 @@ export interface FileRouteTypes {
     | '/_app/settings'
     | '/_app/shipments'
     | '/_app/invoices/$id'
+    | '/api/public/city-sync'
     | '/api/public/razorpay-webhook'
     | '/_app/invoices/'
   fileRoutesById: FileRoutesById
@@ -230,6 +242,7 @@ export interface RootRouteChildren {
   AppRouteRoute: typeof AppRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
+  ApiPublicCitySyncRoute: typeof ApiPublicCitySyncRoute
   ApiPublicRazorpayWebhookRoute: typeof ApiPublicRazorpayWebhookRoute
 }
 
@@ -347,6 +360,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppInvoicesIdRouteImport
       parentRoute: typeof AppInvoicesRoute
     }
+    '/api/public/city-sync': {
+      id: '/api/public/city-sync'
+      path: '/api/public/city-sync'
+      fullPath: '/api/public/city-sync'
+      preLoaderRoute: typeof ApiPublicCitySyncRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/razorpay-webhook': {
       id: '/api/public/razorpay-webhook'
       path: '/api/public/razorpay-webhook'
@@ -406,6 +426,7 @@ const rootRouteChildren: RootRouteChildren = {
   AppRouteRoute: AppRouteRouteWithChildren,
   AuthRoute: AuthRoute,
   ResetPasswordRoute: ResetPasswordRoute,
+  ApiPublicCitySyncRoute: ApiPublicCitySyncRoute,
   ApiPublicRazorpayWebhookRoute: ApiPublicRazorpayWebhookRoute,
 }
 export const routeTree = rootRouteImport
