@@ -253,5 +253,54 @@ drop trigger if exists shipments_charge_audit on public.shipments;
 create trigger shipments_charge_audit after insert or update or delete on public.shipments
   for each row execute function public.shipments_charge_audit();
 
+-- ---------------------------------------------------------------------
+-- C. Bug fix found while testing: billing_weight and weight_unit are GENERATED
+-- columns, which are NULL inside BEFORE UPDATE triggers. The draft guard compared
+-- them, so finalize / save / discard failed for every DOX or NON-DOX shipment.
+-- Same guard, those two derived columns excluded (they follow the compared weight
+-- and type columns, so nothing can change through them).
+-- ---------------------------------------------------------------------
+create or replace function public.shipments_draft_guard()
+returns trigger language plpgsql security definer set search_path = '' as $$
+declare v_same boolean; v_xid bigint := txid_current();
+begin
+  if tg_op = 'UPDATE' and new.invoice_id is not null and new.draft_invoice_id is not null then
+    raise exception 'Shipment % is on a draft invoice. Finalize or discard that draft first.', old.awb using errcode = 'P0001';
+  end if;
+  if old.draft_invoice_id is null then
+    return coalesce(new, old);
+  end if;
+  if tg_op = 'DELETE' then
+    raise exception 'Shipment % is on a draft invoice. Remove it from the draft or discard the draft first.', old.awb
+      using errcode = 'P0001';
+  end if;
+
+  v_same := (to_jsonb(new) - 'invoice_id' - 'draft_invoice_id' - 'updated_at' - 'billing_weight' - 'weight_unit')
+          = (to_jsonb(old) - 'invoice_id' - 'draft_invoice_id' - 'updated_at' - 'billing_weight' - 'weight_unit');
+
+  if v_same and old.invoice_id is null and new.draft_invoice_id is null
+     and new.invoice_id = old.draft_invoice_id
+     and exists (select 1 from entrysetu_private.shipment_transfer_grants g
+                  where g.xact_id = v_xid and g.invoice_id = old.draft_invoice_id and g.action = 'finalize')
+     and exists (select 1 from public.invoices i
+                  where i.id = old.draft_invoice_id and i.owner_id = old.owner_id and i.status = 'issued') then
+    return new;                                              -- FINALIZE
+  end if;
+
+  if v_same and old.invoice_id is null and new.invoice_id is null and new.draft_invoice_id is null
+     and exists (select 1 from entrysetu_private.shipment_transfer_grants g
+                  where g.xact_id = v_xid and g.invoice_id = old.draft_invoice_id and g.action = 'release') then
+    return new;                                              -- RELEASE
+  end if;
+
+  if old.invoice_id is null and new.invoice_id is not null then
+    raise exception 'Shipment % is on a draft invoice and can only be billed by finalizing that draft.', old.awb
+      using errcode = 'P0001';
+  end if;
+  raise exception 'Shipment % is on a draft invoice. Remove it from the draft or discard the draft first.', old.awb
+    using errcode = 'P0001';
+end $$;
+revoke all on function public.shipments_draft_guard() from public, anon, authenticated, service_role;
+
 notify pgrst, 'reload schema';
 commit;
