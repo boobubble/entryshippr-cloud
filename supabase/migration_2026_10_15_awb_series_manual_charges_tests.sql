@@ -165,8 +165,9 @@ update public.shipments set charge_mode = 'manual', manual_amount = 80 where awb
 
 -- E. Locks: draft reservation and invoicing
 select tam.ok((select pricing_status = 'priced' from public.shipments where awb = 'TAM-M1'), 'manual shipment is invoiceable');
+reset role;
 create table tam.ids (k text, id uuid);
-reset role; grant insert, select on tam.ids to authenticated; set local role authenticated;
+grant insert, select on tam.ids to authenticated; set local role authenticated;
 select tam.as_user('00000000-0000-0000-0000-00000000a5a1');
 insert into tam.ids select 'd1', public.create_invoice_draft((select c1 from tam.c), current_date - 30, current_date,
   array[(select id from public.shipments where awb = 'TAM-M1')]);
