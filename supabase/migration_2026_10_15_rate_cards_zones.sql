@@ -4,6 +4,7 @@
 -- Revision 2. FOR MANUAL REVIEW ONLY. Run after migration_2026_10_15_import_weights.sql.
 -- Idempotent. Existing rate_cards, shipments and invoices are not rewritten.
 --
+-- Zero or negative rates are rejected when saved, and a ₹0 price is never applied.
 -- Pricing rules (identical in src/lib/rates.ts — keep both in sync):
 --   billed weight  DOX: ceil(billing_weight grams)    NON-DOX: ceil(kg * 1000) / 1000
 --   card choice    zone-wise slabs for (client, type, service); if none, the Default
@@ -136,8 +137,8 @@ begin
       if k !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
          or not exists (select 1 from public.zones z where z.id = k::uuid and z.owner_id = v_uid) then
         raise exception 'Unknown zone in rates' using errcode = 'P0001'; end if;
-      if jsonb_typeof(r.rates->k) <> 'number' or (r.rates->>k)::numeric < 0 or (r.rates->>k)::numeric > 9999999999 then
-        raise exception 'Rates must be 0 or more' using errcode = 'P0001'; end if;
+      if jsonb_typeof(r.rates->k) <> 'number' or (r.rates->>k)::numeric <= 0 or (r.rates->>k)::numeric > 9999999999 then
+        raise exception 'Rates must be more than 0' using errcode = 'P0001'; end if;
     end loop;
     v_prev := r.mx;
   end loop;
@@ -221,7 +222,9 @@ begin
     v_label := format('%s–%s %s', trim_scale(v_slab.min_weight), trim_scale(v_slab.max_weight), v_unit);
     if jsonb_typeof(v_slab.rates -> v_zone.id::text) is distinct from 'number' then
       return query select null::numeric, null::text, null::text, format('No %s rate for %s', v_zone.name, v_label); return; end if;
-    v_rate := (v_slab.rates ->> v_zone.id::text)::numeric;
+    v_rate := round((v_slab.rates ->> v_zone.id::text)::numeric, 2);
+    if v_rate <= 0 then
+      return query select null::numeric, null::text, null::text, format('%s rate for %s is ₹0', v_zone.name, v_label); return; end if;
     return query select round(v_rate, 2), v_zone.name, v_label, null::text; return;
   end if;
 
@@ -236,11 +239,16 @@ begin
   select c.* into v_card from public.rate_cards c
    where c.owner_id = p_owner and c.client_id is not distinct from v_cid and lower(c.service) = lower(p_service)
      and v_kg between c.min_weight and c.max_weight order by c.min_weight limit 1;
-  if found then return query select round(v_card.rate, 2), null::text, 'older kg slab', null::text; return; end if;
+  if found then
+    if round(v_card.rate, 2) <= 0 then return query select null::numeric, null::text, null::text, 'Older kg slab rate is ₹0'; return; end if;
+    return query select round(v_card.rate, 2), null::text, 'older kg slab', null::text; return;
+  end if;
   select c.* into v_card from public.rate_cards c
    where c.owner_id = p_owner and c.client_id is not distinct from v_cid and lower(c.service) = lower(p_service)
    order by c.max_weight desc limit 1;
   if v_kg > v_card.max_weight then
+    if round(v_card.rate + ceil(v_kg - v_card.max_weight) * v_card.extra_per_kg, 2) <= 0 then
+      return query select null::numeric, null::text, null::text, 'Older kg slab rate is ₹0'; return; end if;
     return query select round(v_card.rate + ceil(v_kg - v_card.max_weight) * v_card.extra_per_kg, 2), null::text, 'older kg slab', null::text; return;
   end if;
   return query select null::numeric, null::text, null::text, format('No slab covers %s kg', trim_scale(v_kg));
@@ -262,7 +270,7 @@ alter table public.shipments add constraint shipments_typed_service_chk
 
 alter table public.shipments drop constraint if exists shipments_typed_priced_chk;
 alter table public.shipments add constraint shipments_typed_priced_chk
-  check (shipment_type is null or (rate_applied is not null and amount = rate_applied));
+  check (shipment_type is null or (rate_applied > 0 and amount = rate_applied));
 
 create or replace function public.shipments_apply_rate()
 returns trigger language plpgsql security definer set search_path = '' as $$

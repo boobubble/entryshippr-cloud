@@ -16,7 +16,8 @@
 --   user_roles      SELECT
 --   clients         SELECT, DELETE | INSERT/UPDATE(name, phone, email, gstin, address, state, is_gst, active)
 --   rate_cards      SELECT, DELETE | INSERT/UPDATE(client_id, service, min_weight, max_weight, rate, extra_per_kg)
---   invoice_series  SELECT | INSERT(fy, kind, prefix, next_number) | UPDATE(prefix, next_number)   (no DELETE)
+--   invoice_series  SELECT only — prefix / starting number changed via set_invoice_series(); numbers
+--                   are consumed only by create_invoice()
 --   invoices        SELECT                       (issued/cancelled only via RPCs)
 --   shipments       SELECT, DELETE | INSERT/UPDATE(client_id, awb, ship_date, destination, service, weight,
 --                   pieces, amount, shipment_type, weight_f, weight_g, weight_h, weight_t)
@@ -30,6 +31,120 @@
 -- =====================================================================
 
 begin;
+
+-- ---------------------------------------------------------------------
+-- 0. Invoice numbering fixes
+--  a) create_invoice(): V2 ran INSERT ... ON CONFLICT DO NOTHING on every call.
+--     BEFORE INSERT triggers fire before conflict detection, so guard_invoice_series
+--     saw next_number = 1 <= max(seq) and aborted EVERY second invoice in a series.
+--     Now the series row is inserted only when missing; numbering itself is unchanged
+--     (row-locked UPDATE ... RETURNING, numbers reserved only after validation).
+--  b) Users can no longer write invoice_series directly. set_invoice_series() lets
+--     them set the prefix and move the next number FORWARD only (never below the
+--     current next number or any used number).
+-- ---------------------------------------------------------------------
+create or replace function public.create_invoice(p_client_id uuid, p_from date, p_to date, p_invoice_date date default current_date)
+returns uuid language plpgsql security definer set search_path = '' as $$
+declare
+  v_uid uuid := auth.uid();
+  v_client public.clients;
+  v_state text;
+  v_kind public.invoice_kind;
+  v_fy text;
+  v_seq int;
+  v_prefix text;
+  v_count int;
+  v_sub numeric(14,2);
+  v_cgst numeric(14,2) := 0;
+  v_igst numeric(14,2) := 0;
+  v_id uuid;
+begin
+  if v_uid is null then raise exception 'Not signed in'; end if;
+  if not public.has_access() then raise exception 'Your trial or plan has expired. Renew to create invoices.'; end if;
+  if p_from is null or p_to is null or p_from > p_to then raise exception 'Invalid billing period'; end if;
+  if p_invoice_date is null then raise exception 'Invoice date required'; end if;
+
+  select * into v_client from public.clients where id = p_client_id and owner_id = v_uid;
+  if not found then raise exception 'Client not found'; end if;
+  select state into v_state from public.profiles where id = v_uid;
+
+  perform 1 from public.shipments
+   where owner_id = v_uid and client_id = p_client_id and invoice_id is null
+     and ship_date between p_from and p_to
+   for update;
+  select count(*), coalesce(sum(amount), 0) into v_count, v_sub from public.shipments
+   where owner_id = v_uid and client_id = p_client_id and invoice_id is null
+     and ship_date between p_from and p_to;
+  if v_count = 0 then raise exception 'No unbilled shipments for this client in the selected period'; end if;
+
+  v_kind := case when v_client.is_gst then 'gst'::public.invoice_kind else 'nongst'::public.invoice_kind end;
+  v_fy := public.fy_label(p_invoice_date);
+
+  if v_kind = 'gst' then
+    if public.gst_state_code(v_state) is null then
+      raise exception 'Set a valid business state in Settings before issuing GST invoices';
+    end if;
+    if public.gst_state_code(v_client.state) is null then
+      raise exception 'Set a valid state for client % before issuing a GST invoice', v_client.name;
+    end if;
+    if public.gst_state_code(v_state) = public.gst_state_code(v_client.state) then
+      v_cgst := round(v_sub * 0.09, 2);
+    else
+      v_igst := round(v_sub * 0.18, 2);
+    end if;
+  end if;
+
+  -- series row created only when missing (avoids the guard-trigger conflict)
+  if not exists (select 1 from public.invoice_series where owner_id = v_uid and fy = v_fy and kind = v_kind) then
+    insert into public.invoice_series (owner_id, fy, kind, prefix, next_number)
+    values (v_uid, v_fy, v_kind, case when v_kind = 'gst' then 'GST' else 'BOS' end, 1)
+    on conflict (owner_id, fy, kind) do nothing;
+  end if;
+  update public.invoice_series set next_number = next_number + 1
+   where owner_id = v_uid and fy = v_fy and kind = v_kind
+   returning next_number - 1, prefix into v_seq, v_prefix;          -- row lock serialises numbering
+  if v_seq is null then raise exception 'Invoice series unavailable'; end if;
+
+  insert into public.invoices (owner_id, client_id, kind, fy, seq, invoice_no, invoice_date,
+                               period_from, period_to, subtotal, cgst, sgst, igst, total)
+  values (v_uid, p_client_id, v_kind, v_fy, v_seq,
+          v_prefix || '/' || v_fy || '/' || lpad(v_seq::text, 4, '0'),
+          p_invoice_date, p_from, p_to, v_sub, v_cgst, v_cgst, v_igst, v_sub + v_cgst * 2 + v_igst)
+  returning id into v_id;
+
+  update public.shipments set invoice_id = v_id
+   where owner_id = v_uid and client_id = p_client_id and invoice_id is null
+     and ship_date between p_from and p_to;
+  return v_id;
+end $$;
+
+create or replace function public.set_invoice_series(p_fy text, p_kind public.invoice_kind, p_prefix text, p_next_number int)
+returns void language plpgsql security definer set search_path = '' as $$
+declare v_uid uuid := auth.uid(); v_cur int; v_max int;
+begin
+  if v_uid is null then raise exception 'Not signed in' using errcode = '42501'; end if;
+  if not public.has_access() then raise exception 'Your trial or plan has expired' using errcode = '42501'; end if;
+  if p_fy is null or p_fy !~ '^[0-9]{4}-[0-9]{2}$' or p_kind is null then raise exception 'Invalid series' using errcode = 'P0001'; end if;
+  if p_prefix is null or p_prefix !~ '^[A-Za-z0-9/_-]{1,20}$' then raise exception 'Prefix: 1–20 letters, digits, / _ -' using errcode = 'P0001'; end if;
+  if p_next_number is null or p_next_number < 1 or p_next_number > 99999999 then raise exception 'Invalid next number' using errcode = 'P0001'; end if;
+
+  select next_number into v_cur from public.invoice_series
+   where owner_id = v_uid and fy = p_fy and kind = p_kind for update;
+  select coalesce(max(seq), 0) into v_max from public.invoices
+   where owner_id = v_uid and fy = p_fy and kind = p_kind;
+  if v_cur is not null and p_next_number < v_cur then
+    raise exception 'Next number cannot go backwards (currently %)', v_cur using errcode = 'P0001'; end if;
+  if p_next_number <= v_max then
+    raise exception 'Next number must be greater than % (already used)', v_max using errcode = 'P0001'; end if;
+
+  if v_cur is null then
+    insert into public.invoice_series (owner_id, fy, kind, prefix, next_number)
+    values (v_uid, p_fy, p_kind, p_prefix, p_next_number);
+  else
+    update public.invoice_series set prefix = p_prefix, next_number = p_next_number
+     where owner_id = v_uid and fy = p_fy and kind = p_kind;
+  end if;
+end $$;
 
 -- ---------------------------------------------------------------------
 -- 1. Start from zero on every app table
@@ -61,9 +176,7 @@ grant select, delete on public.rate_cards to authenticated;
 grant insert (client_id, service, min_weight, max_weight, rate, extra_per_kg) on public.rate_cards to authenticated;
 grant update (client_id, service, min_weight, max_weight, rate, extra_per_kg) on public.rate_cards to authenticated;
 
-grant select on public.invoice_series to authenticated;
-grant insert (fy, kind, prefix, next_number) on public.invoice_series to authenticated;
-grant update (prefix, next_number) on public.invoice_series to authenticated;
+grant select on public.invoice_series to authenticated;   -- writes only via set_invoice_series / create_invoice
 
 grant select on public.invoices to authenticated;
 
@@ -107,6 +220,7 @@ alter function public.save_rate_card(uuid, text, text, jsonb)   set search_path 
 alter function public.copy_rate_cards(uuid, uuid, boolean)      set search_path = '';
 alter function public.shipment_rate(uuid, uuid, text, text, text, numeric) set search_path = '';
 alter function public.shipments_apply_rate()                    set search_path = '';
+alter function public.set_invoice_series(text, public.invoice_kind, text, int) set search_path = '';
 
 -- Start every app function from zero
 do $$
@@ -129,6 +243,7 @@ grant execute on function public.create_invoice(uuid, date, date, date)  to auth
 grant execute on function public.cancel_invoice(uuid, text)              to authenticated;
 grant execute on function public.save_rate_card(uuid, text, text, jsonb) to authenticated;
 grant execute on function public.copy_rate_cards(uuid, uuid, boolean)    to authenticated;
+grant execute on function public.set_invoice_series(text, public.invoice_kind, text, int) to authenticated;
 -- Trigger functions run as the trigger's table owner context; they need no user EXECUTE.
 -- service_role only: activate_payment, record_webhook_event, admin_set_access, shipment_rate.
 
