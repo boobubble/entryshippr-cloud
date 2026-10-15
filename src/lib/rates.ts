@@ -32,12 +32,6 @@ export function validateSlabs(slabs: EditSlab[], unit: "g" | "kg"): string[] {
   return errs;
 }
 
-export function zoneFor(zones: Zone[], destination: string): Zone | null {
-  const d = destination.trim().toLowerCase();
-  if (!d) return null;
-  return zones.find((z) => z.destinations.some((x) => x.trim().toLowerCase() === d)) ?? null;
-}
-
 export type RateResult = { ok: true; rate: number; zone: string; slab: string } | { ok: false; reason: string; noCard?: boolean };
 
 /** Billed weight — must match PostgreSQL shipment_rate(): DOX ceil(grams), NON-DOX ceil to 0.001 kg. */
@@ -47,17 +41,18 @@ export function billedWeight(type: ShipmentType, w: number) {
 }
 
 /** weight is the final billing weight in the shipment's own unit. Client slabs first, then default slabs. */
+/** zone = the seller's zone for the shipment city (from register_cities), or null with zoneReason. */
 export function matchRate(
-  slabs: Slab[], zones: Zone[],
-  q: { clientId: string | null; type: ShipmentType; service: Service; destination: string; weight: number },
+  slabs: Slab[],
+  q: { clientId: string | null; type: ShipmentType; service: Service; zone: { id: string; name: string } | null; zoneReason?: string; weight: number },
 ): RateResult {
   const unit = q.type === "DOX" ? "g" : "kg";
   const pick = (cid: string | null) => slabs.filter((s) => s.client_id === cid && s.shipment_type === q.type && s.service === q.service);
   let pool = q.clientId ? pick(q.clientId) : [];
   if (!pool.length) pool = pick(null);
   if (!pool.length) return { ok: false, reason: `No ${q.type} ${q.service} rate card`, noCard: true };
-  const zone = zoneFor(zones, q.destination);
-  if (!zone) return { ok: false, reason: q.destination ? `No zone for "${q.destination}"` : "No destination to find zone" };
+  const zone = q.zone;
+  if (!zone) return { ok: false, reason: q.zoneReason || "City has no zone" };
   const w = billedWeight(q.type, q.weight);
   const slab = [...pool].sort((a, b) => Number(a.min_weight) - Number(b.min_weight))
     .find((s) => w >= Number(s.min_weight) && w <= Number(s.max_weight));
