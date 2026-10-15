@@ -1,7 +1,7 @@
 import { up } from "@/lib/text";
 import { invDate } from "@/components/InvoiceDocument";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase, inr } from "@/lib/supabase";
@@ -168,4 +168,18 @@ function Invoices() {
       </div>
     </div>
   );
+}
+
+// Numeric serial order: drafts (no number) count as newest; then financial year,
+// then sequence number as a number; manual numbers (no seq) by issue time, then natural text order.
+function compareInvoices(a: Row & { fy?: string | null; seq?: number | null; finalized_at?: string | null; created_at?: string }, b: typeof a): number {
+  const da = a.status === "draft" ? 1 : 0, db = b.status === "draft" ? 1 : 0;
+  if (da !== db) return da - db;
+  if (da) return (a.created_at ?? "").localeCompare(b.created_at ?? "");
+  const fy = (a.fy ?? "").localeCompare(b.fy ?? "");
+  if (fy) return fy;
+  if (a.seq != null && b.seq != null && a.seq !== b.seq) return a.seq - b.seq;
+  const t = (a.finalized_at ?? a.invoice_date).localeCompare(b.finalized_at ?? b.invoice_date);
+  if (t) return t;
+  return (a.invoice_no ?? "").localeCompare(b.invoice_no ?? "", undefined, { numeric: true });
 }
