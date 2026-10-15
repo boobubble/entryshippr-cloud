@@ -18,8 +18,8 @@
 --   city text -> resolve city (seller alias > unique global match > seller-mapped candidate)
 --   -> seller zone -> client card, else Default card -> DOX/NON-DOX -> Standard/Fast
 --   -> billed-weight slab -> zone rate -> amount.
---   If no zone-wise card exists for that client/type/service, the older kg rate_cards
---   (no zones) still apply, as before.
+--   Older zone-less kg rate_cards are NOT used for typed shipments: no zone-wise card
+--   means Needs Review. Already-invoiced shipments keep their stored amounts.
 --   Any failure (unknown/ambiguous city, no zone, no card/slab/rate) stores the
 --   shipment as pricing_status = 'needs_review' with amount 0 and a reason. It is
 --   re-priced automatically when the seller assigns a zone, confirms a city or saves

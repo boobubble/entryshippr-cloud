@@ -342,7 +342,7 @@ select t15.ok((select trial_ends_at > now() + interval '4 days' from public.prof
 reset role;
 
 -- =====================================================================
--- H. Legacy kg rate-card fallback and ₹0 protection
+-- H. Older kg rate cards are never a fallback; ₹0 protection
 -- =====================================================================
 set local role authenticated;
 select t15.as_user('00000000-0000-0000-0000-0000000000c1');
