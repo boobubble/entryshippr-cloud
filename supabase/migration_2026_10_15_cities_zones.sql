@@ -18,8 +18,8 @@
 --   city text -> resolve city (seller alias > unique global match > seller-mapped candidate)
 --   -> seller zone -> client card, else Default card -> DOX/NON-DOX -> Standard/Fast
 --   -> billed-weight slab -> zone rate -> amount.
---   If no zone-wise card exists for that client/type/service, the older kg rate_cards
---   (no zones) still apply, as before.
+--   Older zone-less kg rate_cards are NOT used for typed shipments: no zone-wise card
+--   means Needs Review. Already-invoiced shipments keep their stored amounts.
 --   Any failure (unknown/ambiguous city, no zone, no card/slab/rate) stores the
 --   shipment as pricing_status = 'needs_review' with amount 0 and a reason. It is
 --   re-priced automatically when the seller assigns a zone, confirms a city or saves
@@ -336,7 +336,7 @@ language plpgsql security definer set search_path = '' as $$
 declare
   v_unit text := case p_type when 'DOX' then 'g' else 'kg' end;
   v_w numeric; v_has boolean := false; v_cid uuid; cz record;
-  v_slab public.rate_slabs; v_card public.rate_cards; v_label text; v_rate numeric; v_kg numeric;
+  v_slab public.rate_slabs; v_label text; v_rate numeric;
 begin
   select * into cz from public.city_zone(p_owner, p_destination, true);
   if p_billing_weight is null or p_billing_weight <= 0 then
@@ -364,30 +364,10 @@ begin
     return query select v_rate, cz.zone_name, v_label, null::text, cz.city_id; return;
   end if;
 
-  -- older kg rate cards (no zones), client first then Default
-  v_kg := case p_type when 'DOX' then v_w / 1000 else v_w end;
-  if exists (select 1 from public.rate_cards c where c.owner_id = p_owner and c.client_id = p_client and lower(c.service) = lower(p_service)) then
-    v_cid := p_client; v_has := true;
-  elsif exists (select 1 from public.rate_cards c where c.owner_id = p_owner and c.client_id is null and lower(c.service) = lower(p_service)) then
-    v_cid := null; v_has := true;
-  end if;
-  if not v_has then return query select null::numeric, null::text, null::text, format('No %s %s rate card', p_type, p_service), cz.city_id; return; end if;
-  select c.* into v_card from public.rate_cards c
-   where c.owner_id = p_owner and c.client_id is not distinct from v_cid and lower(c.service) = lower(p_service)
-     and v_kg between c.min_weight and c.max_weight order by c.min_weight limit 1;
-  if found then
-    if round(v_card.rate, 2) <= 0 then return query select null::numeric, null::text, null::text, 'Older kg slab rate is ₹0', cz.city_id; return; end if;
-    return query select round(v_card.rate, 2), null::text, 'older kg slab', null::text, cz.city_id; return;
-  end if;
-  select c.* into v_card from public.rate_cards c
-   where c.owner_id = p_owner and c.client_id is not distinct from v_cid and lower(c.service) = lower(p_service)
-   order by c.max_weight desc limit 1;
-  if v_kg > v_card.max_weight then
-    v_rate := round(v_card.rate + ceil(v_kg - v_card.max_weight) * v_card.extra_per_kg, 2);
-    if v_rate <= 0 then return query select null::numeric, null::text, null::text, 'Older kg slab rate is ₹0', cz.city_id; return; end if;
-    return query select v_rate, null::text, 'older kg slab', null::text, cz.city_id; return;
-  end if;
-  return query select null::numeric, null::text, null::text, format('No slab covers %s kg', trim_scale(v_kg)), cz.city_id;
+  -- No zone-wise card for this client/Default, type and service: Needs Review.
+  -- Zone-less (older kg) rate_cards are NOT an automatic fallback for typed shipments;
+  -- untyped manual shipments keep their entered amount and never reach this function.
+  return query select null::numeric, null::text, null::text, format('No %s %s zone-wise rate card', p_type, p_service), cz.city_id;
 end $$;
 revoke all on function public.shipment_rate(uuid, uuid, text, text, text, numeric) from public, anon, authenticated;
 grant execute on function public.shipment_rate(uuid, uuid, text, text, text, numeric) to service_role;
