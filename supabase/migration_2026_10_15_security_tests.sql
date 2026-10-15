@@ -360,13 +360,13 @@ set local role authenticated;
 select t15.as_user('00000000-0000-0000-0000-0000000000c1');
 
 insert into public.shipments (client_id, awb, destination, shipment_type, weight_f) select c1, 'L1', 'Pune', 'NON-DOX', 1.5 from t15.c;
-select t15.ok((select amount = 70 and rate_slab = 'older kg slab' and rate_zone is null from public.shipments where awb = 'L1'), 'legacy kg slab used when no zone-wise card');
+select t15.ok((select pricing_status = 'needs_review' and amount = 0 and review_reason like '%zone-wise rate card%' from public.shipments where awb = 'L1'), 'older kg slab is NOT a fallback: Needs Review');
 insert into public.shipments (client_id, awb, destination, shipment_type, weight_f) select c1, 'L2', 'Pune', 'NON-DOX', 3.2 from t15.c;
-select t15.ok((select amount = 110 from public.shipments where awb = 'L2'), 'legacy above top slab: 70 + ceil(1.2)*20 = 110');
+select t15.ok((select pricing_status = 'needs_review' and amount = 0 from public.shipments where awb = 'L2'), 'older kg slab above top slab: Needs Review');
 insert into public.shipments (client_id, awb, destination, shipment_type, weight_f) select c1, 'L3', 'Pune', 'DOX', 999.4 from t15.c;
-select t15.ok((select weight = 1.000 and amount = 50 from public.shipments where awb = 'L3'), 'DOX 999.4 g -> 1000 g -> 1 kg, lower boundary slab');
+select t15.ok((select weight = 1.000 and pricing_status = 'needs_review' from public.shipments where awb = 'L3'), 'DOX 999.4 g -> 1 kg stored; no zone-wise card -> Needs Review');
 insert into public.shipments (client_id, awb, destination, shipment_type, service, weight_f) select c1, 'L4', 'Pune', 'DOX', 'Fast', 10 from t15.c;
-select t15.ok((select pricing_status = 'needs_review' and amount = 0 and review_reason like '%₹0%' from public.shipments where awb = 'L4'), 'legacy ₹0 default rate never applied (needs review)');
+select t15.ok((select pricing_status = 'needs_review' and amount = 0 and review_reason like '%zone-wise rate card%' from public.shipments where awb = 'L4'), 'legacy ₹0 default rate never applied (needs review)');
 select t15.expect_fail($$select public.save_rate_card((select c1 from t15.c), 'DOX', 'Standard', jsonb_build_array(jsonb_build_object('min_weight',0,'max_weight',500,'rates',jsonb_build_object((select zw from t15.c),0))))$$,
   'zero zone rate rejected', '{P0001}', '%more than 0%');
 select t15.expect_fail($$select public.save_rate_card((select c1 from t15.c), 'DOX', 'Standard', jsonb_build_array(jsonb_build_object('min_weight',0,'max_weight',500,'rates',jsonb_build_object((select zw from t15.c),-5))))$$,
@@ -375,6 +375,7 @@ select public.save_rate_card((select c1 from t15.c), 'DOX', 'Standard', jsonb_bu
 insert into public.shipments (client_id, awb, destination, shipment_type, weight_f) select c1, 'L5', 'Pune', 'DOX', 300 from t15.c;
 select t15.ok((select amount = 25 and rate_zone = 'West' from public.shipments where awb = 'L5'), 'zone-wise card takes over from legacy once saved');
 select t15.ok((select count(*) = 0 from public.shipments where pricing_status = 'priced' and shipment_type is not null and amount <= 0), 'no typed shipment priced at ₹0');
+select t15.ok((select pricing_status = 'needs_review' from public.shipments where awb = 'L1'), 'older kg slab still ignored after a DOX zone card exists (NON-DOX has none)');
 
 -- =====================================================================
 -- I. Cross-tenant regression (C vs A and B)
