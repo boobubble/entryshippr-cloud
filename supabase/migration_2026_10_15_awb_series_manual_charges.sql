@@ -209,7 +209,7 @@ create table if not exists public.shipment_charge_audit (
   created_at timestamptz not null default now()
 );
 create index if not exists shipment_charge_audit_owner_idx on public.shipment_charge_audit (owner_id, shipment_id, created_at);
-revoke all on public.shipment_charge_audit from public, anon, authenticated;
+revoke all on public.shipment_charge_audit from public, anon, authenticated, service_role;
 grant select on public.shipment_charge_audit to authenticated;
 grant select on public.shipment_charge_audit to service_role;   -- read only, even for service role
 alter table public.shipment_charge_audit enable row level security;
