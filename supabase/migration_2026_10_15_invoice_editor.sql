@@ -494,7 +494,9 @@ begin
   if not exists (select 1 from public.clients where id = p_client_id and owner_id = v_uid) then
     raise exception 'Client not found';
   end if;
-  v_kind := coalesce(p_kind, case when (select nullif(btrim(gstin), '') from public.profiles where id = v_uid) is not null
+  -- Default type = existing create_invoice rule (client's GST setting), so a new
+  -- draft starts exactly like today's invoice. The seller may change it explicitly.
+  v_kind := coalesce(p_kind, case when (select is_gst from public.clients where id = p_client_id and owner_id = v_uid)
                                   then 'gst'::public.invoice_kind else 'nongst'::public.invoice_kind end);
   v_mode := public.invoice_tax_mode(v_uid, p_client_id, v_kind);
 
@@ -659,11 +661,13 @@ begin
     if exists (select 1 from public.invoices where owner_id = v_uid and invoice_no = v_no) then
       raise exception 'Invoice number % is already used (cancelled numbers stay reserved).', v_no using errcode = 'P0001';
     end if;
-    v_n := nullif(substring(v_no from '([0-9]{1,8})$'), '')::bigint;
-    if v_n is not null and exists (select 1 from public.invoice_series x
-         where x.owner_id = v_uid and x.fy = v_fy
-           and public.format_invoice_no(x.prefix, x.fy, v_n::int, x.fy_format, x.separator, x.pad) = v_no) then
-      raise exception 'Number % belongs to your automatic series. Use automatic numbering or change the series starting number instead.', v_no
+    -- Block anything that starts like an automatic number (any FY, any format,
+    -- and the fixed format used by the existing create_invoice), so a manual
+    -- entry can never collide with a number the auto series hands out later.
+    if exists (select 1 from (select prefix from public.invoice_series where owner_id = v_uid
+                              union select 'GST' union select 'BOS') x
+                where upper(v_no) like upper(x.prefix) || '/%' or upper(v_no) like upper(x.prefix) || '-%') then
+      raise exception 'Number % belongs to your automatic series. Use automatic numbering or a number that does not start with your series prefix.', v_no
         using errcode = 'P0001';
     end if;
   else
