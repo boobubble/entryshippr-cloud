@@ -16,8 +16,10 @@
 --   * Taxable value = line subtotal + charges. GST: CGST+SGST (rate/2 each)
 --     when seller and client states match, otherwise IGST. Allowed GST rates:
 --     5, 12, 18, 28. Tax mode comes from the states and cannot be chosen.
---   * Invoice type: a seller with a GSTIN must issue GST invoices; a seller
---     without a GSTIN can only issue Non-GST invoices (no tax can be charged).
+--   * Invoice type (GST / Non-GST) is the seller's choice per invoice. GSTIN-
+--     based locking is NOT enforced yet (pending GST compliance review). A
+--     Non-GST invoice always carries no tax; a GST invoice needs valid seller
+--     and client states so the tax mode (CGST+SGST vs IGST) can be derived.
 --   * Numbers are assigned only at finalize. Auto numbers come from the
 --     per-FY, per-type series and never go backwards or reuse a number.
 --     Manual numbers must be unique for the seller (including cancelled
@@ -335,24 +337,18 @@ create trigger invoice_charges_guard before insert or update or delete on public
 -- ---------------------------------------------------------------------
 -- 6. Internal helpers (service role only; called by the functions below)
 -- ---------------------------------------------------------------------
--- Validates invoice type against tax rules and returns the tax mode.
+-- Returns the tax mode for an invoice. GSTIN-based type locking is NOT
+-- enforced yet (pending GST compliance review): the seller chooses GST or
+-- Non-GST per invoice. Non-GST never carries tax; GST needs valid states so
+-- the mode (CGST+SGST vs IGST) can be derived.
 create or replace function public.invoice_tax_mode(p_uid uuid, p_client_id uuid, p_kind public.invoice_kind)
 returns text language plpgsql stable security definer set search_path = '' as $$
-declare v_gstin text; v_state text; v_client public.clients;
+declare v_state text; v_client public.clients;
 begin
-  select nullif(btrim(gstin), ''), state into v_gstin, v_state from public.profiles where id = p_uid;
+  select state into v_state from public.profiles where id = p_uid;
   select * into v_client from public.clients where id = p_client_id and owner_id = p_uid;
   if not found then raise exception 'Client not found'; end if;
-  if p_kind = 'nongst' then
-    if v_gstin is not null then
-      raise exception 'Your business has a GSTIN, so this invoice must be a GST invoice. Non-GST invoices are only for sellers without GST registration.'
-        using errcode = 'P0001';
-    end if;
-    return 'none';
-  end if;
-  if v_gstin is null then
-    raise exception 'Add your GSTIN in Settings before issuing GST invoices.' using errcode = 'P0001';
-  end if;
+  if p_kind = 'nongst' then return 'none'; end if;
   if public.gst_state_code(v_state) is null then
     raise exception 'Set a valid business state in Settings before issuing GST invoices' using errcode = 'P0001';
   end if;
