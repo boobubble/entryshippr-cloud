@@ -721,7 +721,7 @@ end $$;
 create or replace function public.finalize_invoice(p_invoice_id uuid)
 returns uuid language plpgsql security definer set search_path = '' as $$
 declare
-  v_uid uuid := auth.uid(); v public.invoices; v_fy text; v_seq int; v_no text; s public.invoice_series;
+  v_uid uuid := auth.uid(); v public.invoices; v_fy text; v_seq int; v_no text; v_ser public.invoice_series;
   v_n bigint; v_tries int := 0;
 begin
   if v_uid is null then raise exception 'Not signed in'; end if;
@@ -769,10 +769,10 @@ begin
       if v_tries > 1000 then raise exception 'Could not allocate an invoice number'; end if;
       update public.invoice_series set next_number = next_number + 1
        where owner_id = v_uid and fy = v_fy and kind = v.kind
-       returning * into s;
+       returning * into v_ser;
       if not found then raise exception 'Invoice series unavailable'; end if;
-      v_seq := s.next_number - 1;
-      v_no := public.format_invoice_no(s.prefix, s.fy, v_seq, s.fy_format, s.separator, s.pad);
+      v_seq := v_ser.next_number - 1;
+      v_no := public.format_invoice_no(v_ser.prefix, v_ser.fy, v_seq, v_ser.fy_format, v_ser.separator, v_ser.pad);
       exit when not exists (select 1 from public.invoices where owner_id = v_uid and invoice_no = v_no);
     end loop;
   end if;
