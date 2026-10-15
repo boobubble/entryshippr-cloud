@@ -14,19 +14,23 @@ const NEW = "__new";
 type Choice = { city: string; zone: string };
 
 /** One dialog for one or many cities without a zone (or with an ambiguous name). */
-export function CityZoneDialog({ open, items, zones, onClose, onSaved }: {
-  open: boolean; items: CityRes[]; zones: Zone[]; onClose: () => void; onSaved: () => void;
+export function CityZoneDialog({ open, items, zones, onClose, onSaved, onSkip }: {
+  open: boolean; items: CityRes[]; zones: Zone[]; onClose: () => void; onSaved: () => void; onSkip?: () => void;
 }) {
+  const [picked, setPicked] = useState<Set<string>>(new Set());
   const [choice, setChoice] = useState<Record<string, Choice>>({});
   const [newZone, setNewZone] = useState("");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
+    if (open) setPicked(new Set());
     if (open) setChoice(Object.fromEntries(items.map((r) => [r.input, { city: r.status === "ambiguous" ? "" : r.city_id ?? "", zone: "" }])));
   }, [open, items]);
 
   const set = (k: string, p: Partial<Choice>) => setChoice((c) => ({ ...c, [k]: { ...c[k]!, ...p } }));
-  const setAll = (zone: string) => setChoice((c) => Object.fromEntries(Object.entries(c).map(([k, v]) => [k, { ...v, zone }])));
+  // Applies a zone to the ticked cities, or to every city when none are ticked.
+  const setAll = (zone: string) => setChoice((c) => Object.fromEntries(Object.entries(c).map(([k, v]) => [k, picked.size && !picked.has(k) ? v : { ...v, zone }])));
+  const toggle = (k: string) => setPicked((p) => { const n = new Set(p); if (n.has(k)) n.delete(k); else n.add(k); return n; });
   const ready = items.filter((r) => choice[r.input]?.city && choice[r.input]?.zone);
 
   async function save() {
@@ -64,8 +68,8 @@ export function CityZoneDialog({ open, items, zones, onClose, onSaved }: {
         </DialogHeader>
         {items.length > 1 && (
           <div className="flex flex-wrap items-center gap-2 text-sm">
-            <span>Set all to</span>
-            <select className={`${sel} w-48`} defaultValue="" onChange={(e) => e.target.value && setAll(e.target.value)}>
+            <span>{picked.size ? `Set ${picked.size} ticked to` : "Set all to"}</span>
+            <select className={`${sel} w-48`} value="" onChange={(e) => e.target.value && setAll(e.target.value)}>
               <option value="">Choose zone…</option>
               {zones.map((z) => <option key={z.id} value={z.id}>{z.name}</option>)}
               <option value={NEW}>+ New zone</option>
@@ -77,7 +81,7 @@ export function CityZoneDialog({ open, items, zones, onClose, onSaved }: {
             const c = choice[r.input] ?? { city: "", zone: "" };
             return (
               <div key={r.input} className="grid gap-2 rounded-lg border p-2 sm:grid-cols-[1fr_1fr_1fr] sm:items-center">
-                <div className="text-sm font-medium">{r.input}{r.status === "unmapped" && r.city_name && normCity(r.city_name) !== normCity(r.input) && <span className="block text-xs text-muted-foreground">= {r.city_name}</span>}</div>
+                <div className="flex items-start gap-2 text-sm font-medium"><input type="checkbox" className="mt-1" aria-label={`Select ${r.input}`} checked={picked.has(r.input)} onChange={() => toggle(r.input)} /><div>{r.input}{r.status === "unmapped" && r.city_name && normCity(r.city_name) !== normCity(r.input) && <span className="block text-xs text-muted-foreground">= {r.city_name}</span>}</div></div>
                 {r.status === "ambiguous" ? (
                   <select aria-label={`Which ${r.input}`} className={sel} value={c.city} onChange={(e) => set(r.input, { city: e.target.value })}>
                     <option value="">Which one?</option>
@@ -98,7 +102,7 @@ export function CityZoneDialog({ open, items, zones, onClose, onSaved }: {
           <Input placeholder="New zone name" value={newZone} onChange={(e) => setNewZone(e.target.value)} />
         )}
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Later</Button>
+          {onSkip ? <Button variant="outline" onClick={onSkip}>Skip — keep as Needs Review (₹0)</Button> : <Button variant="outline" onClick={onClose}>Later</Button>}
           <Button onClick={save} disabled={busy || !ready.length}>{busy ? "Saving…" : `Save ${ready.length || ""}`}</Button>
         </DialogFooter>
       </DialogContent>

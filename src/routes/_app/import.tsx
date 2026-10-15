@@ -55,6 +55,7 @@ function ImportPage() {
   const [cityTick, setCityTick] = useState(0);
   const [dialog, setDialog] = useState(false);
   const [autoOpened, setAutoOpened] = useState(false);
+  const [skipped, setSkipped] = useState(false);
 
   const saved = useQuery({
     queryKey: ["import_mappings"],
@@ -94,6 +95,7 @@ function ImportPage() {
     return [...new Set(sheet.slice(headerRow + 1).map((r) => String(r[map.destination!] ?? "").trim()).filter(Boolean))].join("\n");
   }, [sheet, map, headerRow]);
   useEffect(() => {
+    setSkipped(false);
     if (!destKey) { setCityMap(new Map()); return; }
     let live = true;
     setCityMap(null);
@@ -165,6 +167,8 @@ function ImportPage() {
   }
 
   async function process() {
+    // Unassigned cities must be assigned or explicitly skipped before importing.
+    if (unmapped.length && !skipped) { setDialog(true); return; }
     setBusy(true);
     try {
       const byName = new Map(clients.map((c) => [c.name.toLowerCase(), c.id]));
@@ -194,7 +198,7 @@ function ImportPage() {
         inserted += data?.length || 0;
       }
       toast.success(`${inserted} shipments added${review ? ` (${review} marked Needs Review)` : ""}. Skipped: ${dups + out.length - inserted} duplicates, ${errors} invalid rows.`);
-      setSheet(null); setMap(null); setAutoOpened(false);
+      setSheet(null); setMap(null); setAutoOpened(false); setSkipped(false);
       qc.invalidateQueries();
     } catch (e) {
       toast.error(errMsg(e));
@@ -287,6 +291,7 @@ function ImportPage() {
         </div>
       )}
       <CityZoneDialog open={dialog} items={unmapped} zones={zones} onClose={() => setDialog(false)}
+        onSkip={() => { setSkipped(true); setDialog(false); toast.info(`${unmapped.length} ${unmapped.length === 1 ? "city" : "cities"} skipped — those shipments will import as Needs Review at ₹0.`); }}
         onSaved={() => { setDialog(false); setCityTick((t) => t + 1); qc.invalidateQueries({ queryKey: ["zones"] }); }} />
     </div>
   );
