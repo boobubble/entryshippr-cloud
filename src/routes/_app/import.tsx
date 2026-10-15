@@ -4,7 +4,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import { supabase, inr } from "@/lib/supabase";
-import { useClients, useRateCards, calcAmount, errMsg } from "@/lib/hooks";
+import { useClients, useRateCards, useRateSlabs, useZones, calcAmount, errMsg } from "@/lib/hooks";
+import { matchRate, normService } from "@/lib/rates";
 import { PageHead, appHead } from "@/components/PageHead";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,6 +23,7 @@ export const Route = createFileRoute("/_app/import")({
 type Row = {
   line: number; awb: string; date: string; client: string; destination: string; service: string; pieces: number;
   type: ShipmentType | null; weights: (number | null)[]; billing: number | null; amount: number | null; error?: string; dup?: "file" | "saved";
+  priced?: { rate: number; zone: string | null; slab: string }; review?: string;
 };
 type SavedMap = { id: string; name: string; mapping: Mapping };
 
@@ -38,6 +40,8 @@ function toISO(v: unknown): string | null {
 function ImportPage() {
   const { data: clients = [] } = useClients();
   const { data: cards = [] } = useRateCards();
+  const { data: slabs = [] } = useRateSlabs();
+  const { data: zones = [] } = useZones();
   const qc = useQueryClient();
   const [sheet, setSheet] = useState<unknown[][] | null>(null);
   const [headerRow, setHeaderRow] = useState(0);
@@ -80,6 +84,7 @@ function ImportPage() {
     } catch (e) { toast.error(errMsg(e)); }
   }
 
+  const clientIds = useMemo(() => new Map(clients.map((c) => [c.name.toLowerCase(), c.id])), [clients]);
   const rows: Row[] = useMemo(() => {
     if (!sheet || !map) return [];
     const get = (r: unknown[], k: FieldKey) => (map[k] == null ? "" : r[map[k]!]);
@@ -97,7 +102,7 @@ function ImportPage() {
       const row: Row = {
         line: headerRow + i + 2, awb, client, type, weights, billing, date: date ?? "",
         destination: String(get(r, "destination") ?? "").trim(),
-        service: String(get(r, "service") ?? "").trim() || "Standard",
+        service: normService(get(r, "service")),
         pieces: Math.max(1, Math.round(Number(get(r, "pieces")) || 1)),
         amount: amtRaw !== "" && amtRaw != null && Number.isFinite(Number(amtRaw)) ? Number(amtRaw) : null,
       };
@@ -112,12 +117,23 @@ function ImportPage() {
         else if (seen.has(key)) row.dup = "file";
         seen.add(key);
       }
+      if (!row.error && !row.dup && row.amount == null) {
+        const clientId = clientIds.get(client.toLowerCase()) ?? null;
+        const res = matchRate(slabs, zones, { clientId, type: type!, service: row.service as "Standard" | "Fast", destination: row.destination, weight: billing! });
+        if (res.ok) row.priced = { rate: res.rate, zone: res.zone, slab: res.slab };
+        else {
+          const legacy = clientId ? calcAmount(cards, clientId, row.service, toKg(type!, billing!)) : null;
+          if (legacy != null) row.priced = { rate: legacy, zone: null, slab: "older kg slab" };
+          else row.review = res.reason;
+        }
+      }
       out.push(row);
     });
     return out;
-  }, [sheet, map, headerRow, existing]);
+  }, [sheet, map, headerRow, existing, slabs, zones, cards, clientIds]);
 
-  const valid = rows.filter((r) => !r.error && !r.dup);
+  const valid = rows.filter((r) => !r.error && !r.dup && !r.review);
+  const review = rows.filter((r) => r.review).length;
   const dups = rows.filter((r) => r.dup).length;
   const errors = rows.filter((r) => r.error).length;
   const dox = valid.filter((r) => r.type === "DOX").length;
@@ -141,17 +157,17 @@ function ImportPage() {
         if (error) throw error;
         data!.forEach((c) => byName.set(c.name.toLowerCase(), c.id));
       }
-      const out = []; const skipped: string[] = [];
+      const out = [];
       for (const r of valid) {
         const t = r.type!; const kg = toKg(t, r.billing!);
         const cid = byName.get(r.client.toLowerCase())!;
-        const amount = r.amount ?? calcAmount(cards, cid, r.service, kg);
-        if (amount == null) { skipped.push(`${r.awb}: no rate card for ${r.service}`); continue; }
+        const amount = r.amount ?? r.priced!.rate;
         const [f, g, h, tt] = r.weights;
         out.push({
           awb: r.awb, client_id: cid, ship_date: r.date, destination: r.destination || null, service: r.service, pieces: r.pieces, amount,
           weight: +kg.toFixed(3), shipment_type: t, weight_unit: unitOf(t), billing_weight: r.billing,
           weight_f: f, weight_g: g, weight_h: h, weight_t: tt,
+          rate_zone: r.priced?.zone ?? null, rate_slab: r.priced?.slab ?? (r.amount != null ? "from sheet" : null), rate_applied: r.priced?.rate ?? null,
         });
       }
       let inserted = 0;
@@ -160,8 +176,7 @@ function ImportPage() {
         if (error) throw error;
         inserted += data?.length || 0;
       }
-      toast.success(`${inserted} shipments added. Skipped: ${dups + out.length - inserted} duplicates, ${errors} invalid rows, ${skipped.length} without a rate card.`);
-      if (skipped.length) toast.warning(skipped.slice(0, 5).join("\n"));
+      toast.success(`${inserted} shipments added. Skipped: ${dups + out.length - inserted} duplicates, ${errors} invalid rows, ${review} needing rate review.`);
       setSheet(null); setMap(null);
       qc.invalidateQueries();
     } catch (e) {
@@ -179,7 +194,7 @@ function ImportPage() {
   }
 
   const colOptions = Array.from({ length: width }, (_, i) => ({ i, label: `${colLetter(i)} · ${String(headers[i] ?? "").trim() || "(no header)"}` }));
-  const total = valid.reduce((a, r) => a + (r.amount ?? 0), 0);
+  const total = valid.reduce((a, r) => a + (r.amount ?? r.priced?.rate ?? 0), 0);
 
   return (
     <div>
@@ -220,13 +235,13 @@ function ImportPage() {
           </section>
 
           <section>
-            <div className="mb-3 grid grid-cols-2 gap-3 text-sm sm:grid-cols-5">
-              {[["Total rows", rows.length], ["Valid (new)", valid.length], ["Duplicate AWBs", dups], ["Rows with errors", errors], ["DOX / NON-DOX", `${dox} / ${valid.length - dox}`]].map(([l, v]) => (
+            <div className="mb-3 grid grid-cols-2 gap-3 text-sm sm:grid-cols-3 lg:grid-cols-6">
+              {[["Total rows", rows.length], ["Valid (new)", valid.length], ["Duplicate AWBs", dups], ["Rows with errors", errors], ["Needs rate review", review], ["DOX / NON-DOX", `${dox} / ${valid.length - dox}`]].map(([l, v]) => (
                 <div key={l} className="rounded-lg border bg-card p-3"><div className="text-muted-foreground">{l}</div><div className="text-lg font-semibold">{v}</div></div>
               ))}
             </div>
             <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-              <div className="text-sm">Sheet amounts on valid rows: {inr(total)}</div>
+              <div className="text-sm">Total for valid rows: {inr(total)}</div>
               <label className="flex items-center gap-2 text-sm"><Switch checked={createClients} onCheckedChange={setCreateClients} />Create new clients from sheet names</label>
               <Button onClick={process} disabled={busy || !valid.length || missingReq.length > 0}>{busy ? "Importing…" : `Import ${valid.length} shipments`}</Button>
             </div>
@@ -234,7 +249,7 @@ function ImportPage() {
             <div className="max-h-[520px] overflow-auto rounded-xl border bg-card">
               <table className="w-full text-sm">
                 <thead className="sticky top-0 bg-muted text-left"><tr>
-                  {["Row", "AWB", "Date", "Client", "Type", "F", "G", "H", "T", "Billing wt", "Service", "Amount", "Status"].map((h) => <th key={h} className="p-2">{h}</th>)}
+                  {["Row", "AWB", "Date", "Client", "Type", "F", "G", "H", "T", "Billing wt", "Service", "Dest.", "Rate applied", "Status"].map((h) => <th key={h} className="p-2">{h}</th>)}
                 </tr></thead>
                 <tbody>{rows.slice(0, 500).map((r) => (
                   <tr key={r.line} className="border-t">
@@ -242,8 +257,9 @@ function ImportPage() {
                     <td className="p-2">{r.type ?? "—"}</td>
                     {r.weights.map((w, j) => <td key={j} className="p-2">{w ?? ""}</td>)}
                     <td className="p-2 font-medium">{r.type && r.billing != null ? fmtWeight(r.type, r.billing) : "—"}</td>
-                    <td className="p-2">{r.service}</td><td className="p-2">{r.amount ?? "rate card"}</td>
-                    <td className="p-2">{r.error ? <span className="text-destructive">{r.error}</span> : r.dup ? <span className="text-muted-foreground">{r.dup === "saved" ? "Duplicate (already imported)" : "Duplicate in file"}</span> : "OK"}</td>
+                    <td className="p-2">{r.service}</td><td className="p-2">{r.destination}</td>
+                    <td className="p-2 whitespace-nowrap">{r.amount != null ? `${inr(r.amount)} (sheet)` : r.priced ? `${inr(r.priced.rate)} · ${[r.priced.zone, r.priced.slab].filter(Boolean).join(" · ")}` : "—"}</td>
+                    <td className="p-2">{r.error ? <span className="text-destructive">{r.error}</span> : r.review ? <span className="text-destructive">Needs review: {r.review}</span> : r.dup ? <span className="text-muted-foreground">{r.dup === "saved" ? "Duplicate (already imported)" : "Duplicate in file"}</span> : "OK"}</td>
                   </tr>
                 ))}</tbody>
               </table>

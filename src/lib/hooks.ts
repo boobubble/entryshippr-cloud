@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "./supabase";
+import type { Slab, Zone } from "./rates";
 
 export type Profile = {
   id: string; email: string | null; business_name: string | null; phone: string | null; gstin: string | null;
@@ -71,3 +72,25 @@ export function calcAmount(cards: RateCard[], clientId: string, service: string,
 }
 
 export const errMsg = (e: unknown) => (e instanceof Error ? e.message : (e as { message?: string })?.message || "Something went wrong");
+
+export function useZones() {
+  return useQuery({
+    queryKey: ["zones"], retry: false,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("zones").select("id, name, destinations, sort_order").order("sort_order").order("name");
+      if (error) throw error;
+      return data as Zone[];
+    },
+  });
+}
+
+export function useRateSlabs() {
+  return useQuery({
+    queryKey: ["rate_slabs"], retry: false,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("rate_slabs").select("id, client_id, shipment_type, service, min_weight, max_weight, rates, sort_order").order("sort_order");
+      if (error) throw error;
+      return (data as Slab[]).map((s) => ({ ...s, min_weight: Number(s.min_weight), max_weight: Number(s.max_weight) }));
+    },
+  });
+}
