@@ -95,6 +95,7 @@ function ImportPage() {
     return [...new Set(sheet.slice(headerRow + 1).map((r) => String(r[map.destination!] ?? "").trim()).filter(Boolean))].join("\n");
   }, [sheet, map, headerRow]);
   useEffect(() => {
+    setSkipped(false);
     if (!destKey) { setCityMap(new Map()); return; }
     let live = true;
     setCityMap(null);
