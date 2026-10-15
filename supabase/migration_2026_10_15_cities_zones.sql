@@ -154,7 +154,7 @@ end $$;
 create or replace function public.city_resolve(p_owner uuid, p_text text)
 returns table (status text, city_id uuid, candidates jsonb)
 language plpgsql stable security definer set search_path = '' as $$
-declare v_norm text := public.norm_city(p_text); v_id uuid; v_ids uuid[]; v_mapped uuid[];
+declare v_norm text := public.norm_city(p_text); v_id uuid; v_ids uuid[];
 begin
   if v_norm is null then return query select 'empty', null::uuid, null::jsonb; return; end if;
   if v_norm !~ '[a-z]' or char_length(v_norm) > 80 or char_length(v_norm) < 2 then
@@ -166,10 +166,11 @@ begin
     union select a.city_id from public.city_aliases a where a.alias_norm = v_norm) x;
   if v_ids is null then return query select 'unknown', null::uuid, null::jsonb; return; end if;
   if cardinality(v_ids) = 1 then return query select 'ok', v_ids[1], null::jsonb; return; end if;
-  select array_agg(m.city_id) into v_mapped from public.seller_city_zones m where m.owner_id = p_owner and m.city_id = any(v_ids);
-  if cardinality(v_mapped) = 1 then return query select 'ok', v_mapped[1], null::jsonb; return; end if;
+  -- Several candidates: NEVER pick one just because the seller has mapped it to a zone.
+  -- Only an explicit seller confirmation (seller_city_aliases, checked above) resolves it.
   return query select 'ambiguous', null::uuid,
-    (select jsonb_agg(jsonb_build_object('id', c.id, 'name', c.name, 'state', c.state) order by c.state nulls first)
+    (select jsonb_agg(jsonb_build_object('id', c.id, 'name', c.name, 'state', c.state, 'district', c.district)
+                      order by c.state nulls first, c.district nulls first)
        from public.cities c where c.id = any(v_ids));
 end $$;
 
@@ -181,10 +182,10 @@ begin
   if v_norm is null or v_norm !~ '[a-z]' or char_length(v_norm) not between 2 and 80 then return null; end if;
   insert into public.cities (name, name_norm, source, created_by)
   values (public.display_city(p_text), v_norm, p_source, p_by)
-  on conflict (name_norm, coalesce(lower(state), '')) do nothing
+  on conflict (name_norm, coalesce(lower(state), ''), coalesce(lower(district), '')) do nothing
   returning id into v_id;
-  if v_id is null then
-    select c.id into v_id from public.cities c where c.name_norm = v_norm and c.state is null;
+  if v_id is null then   -- a concurrent/earlier insert won; read the committed row
+    select c.id into v_id from public.cities c where c.name_norm = v_norm and c.state is null and c.district is null;
   end if;
   return v_id;
 end $$;
@@ -243,34 +244,62 @@ grant execute on function public.register_cities(text[]) to authenticated, servi
 -- ---------------------------------------------------------------------
 create or replace function public.sync_cities(p jsonb)
 returns jsonb language plpgsql security definer set search_path = '' as $$
-declare e jsonb; v_norm text; v_state text; v_id uuid; v_same int; a text; v_added int := 0; v_updated int := 0; v_alias int := 0;
+-- Concurrency-safe and idempotent:
+--  * a transaction-scoped advisory lock serialises overlapping sync runs;
+--  * every insert uses ON CONFLICT against the unique (name, state, district) index,
+--    so a row inserted concurrently by ensure_city()/add_city() is adopted, never duplicated;
+--  * adopting a state-less city skips when the target (name, state) row already exists;
+--  * running the same payload twice reports added = 0, updated = 0, aliases = 0.
+declare e jsonb; v_norm text; v_state text; v_dist text; v_id uuid; v_same int; a text; v_an text;
+        v_added int := 0; v_updated int := 0; v_alias int := 0; v_n int;
 begin
-  if jsonb_typeof(p) <> 'array' or jsonb_array_length(p) > 20000 then raise exception 'Invalid registry'; end if;
+  if p is null or jsonb_typeof(p) <> 'array' or jsonb_array_length(p) > 20000 then raise exception 'Invalid registry' using errcode = 'P0001'; end if;
+  perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtext('entrysetu.sync_cities'));
   for e in select * from jsonb_array_elements(p) loop
+    continue when jsonb_typeof(e) <> 'object';
     v_norm := public.norm_city(e->>'name');
     v_state := nullif(btrim(e->>'state'), '');
-    if v_norm is null or v_norm !~ '[a-z]' or (v_state is not null and public.gst_state_code(v_state) is null) then continue; end if;
-    select c.id into v_id from public.cities c where c.name_norm = v_norm and lower(coalesce(c.state, '')) = lower(coalesce(v_state, ''));
-    if v_id is null and v_state is not null then
-      -- adopt an existing state-less city only when the registry has exactly one state for this name
+    v_dist := case when v_state is not null then nullif(btrim(e->>'district'), '') end;
+    if v_norm is null or v_norm !~ '[a-z]' or char_length(v_norm) not between 2 and 80
+       or (v_state is not null and public.gst_state_code(v_state) is null)
+       or (v_dist is not null and (char_length(v_dist) not between 2 and 60 or v_dist !~ '[A-Za-z]')) then continue; end if;
+    -- canonical state spelling from the GST table keeps the unique index effective
+    v_id := null;
+    if v_state is not null and v_dist is null then
       select count(*) into v_same from jsonb_array_elements(p) x where public.norm_city(x->>'name') = v_norm;
       if v_same = 1 then
+        -- adopt an existing state-less city only when the registry has exactly one entry
+        -- for this name and that (name, state) row does not already exist
         update public.cities c set state = v_state, source = 'registry'
-         where c.name_norm = v_norm and c.state is null returning c.id into v_id;
+         where c.name_norm = v_norm and c.state is null and c.district is null
+           and not exists (select 1 from public.cities d where d.name_norm = v_norm
+                            and lower(d.state) = lower(v_state) and d.district is null)
+        returning c.id into v_id;
         if v_id is not null then v_updated := v_updated + 1; end if;
       end if;
     end if;
     if v_id is null then
-      insert into public.cities (name, name_norm, state, source)
-      values (public.display_city(e->>'name'), v_norm, v_state, 'registry') returning id into v_id;
-      v_added := v_added + 1;
-    end if;
-    for a in select jsonb_array_elements_text(coalesce(e->'aliases', '[]'::jsonb)) loop
-      if public.norm_city(a) ~ '[a-z]' and public.norm_city(a) <> v_norm then
-        insert into public.city_aliases (alias_norm, city_id) values (public.norm_city(a), v_id) on conflict do nothing;
-        if found then v_alias := v_alias + 1; end if;
+      insert into public.cities (name, name_norm, state, district, source)
+      values (public.display_city(e->>'name'), v_norm, v_state, public.display_city(v_dist), 'registry')
+      on conflict (name_norm, coalesce(lower(state), ''), coalesce(lower(district), '')) do nothing
+      returning id into v_id;
+      if v_id is not null then v_added := v_added + 1;
+      else
+        select c.id into v_id from public.cities c
+         where c.name_norm = v_norm and lower(coalesce(c.state, '')) = lower(coalesce(v_state, ''))
+           and lower(coalesce(c.district, '')) = lower(coalesce(v_dist, ''));
       end if;
-    end loop;
+    end if;
+    continue when v_id is null;
+    if jsonb_typeof(e->'aliases') = 'array' then
+      for a in select jsonb_array_elements_text(e->'aliases') loop
+        v_an := public.norm_city(a);
+        if v_an ~ '[a-z]' and char_length(v_an) <= 80 and v_an <> v_norm then
+          insert into public.city_aliases (alias_norm, city_id) values (v_an, v_id) on conflict do nothing;
+          get diagnostics v_n = row_count; v_alias := v_alias + v_n;
+        end if;
+      end loop;
+    end if;
   end loop;
   return jsonb_build_object('added', v_added, 'updated', v_updated, 'aliases', v_alias);
 end $$;
@@ -450,6 +479,14 @@ begin
    where owner_id = v_uid and client_id = p_client_id and invoice_id is null and ship_date between p_from and p_to;
   if v_review > 0 then
     raise exception '% shipment(s) in this period need review (city, zone or rate missing). Fix them before invoicing.', v_review;
+  end if;
+  -- Any shipment at ₹0 or less (legacy/manual/untyped included) blocks the whole invoice.
+  select count(*) into v_review from public.shipments
+   where owner_id = v_uid and client_id = p_client_id and invoice_id is null and ship_date between p_from and p_to
+     and (amount is null or amount <= 0);
+  if v_review > 0 then
+    raise exception '% shipment(s) in this period have an amount of ₹0 or less. Fix their amount before invoicing.', v_review
+      using errcode = 'P0001';
   end if;
   select count(*), coalesce(sum(amount), 0) into v_count, v_sub from public.shipments
    where owner_id = v_uid and client_id = p_client_id and invoice_id is null and ship_date between p_from and p_to;
