@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { InvoiceDocument, type InvoiceDocumentProps } from "@/components/InvoiceDocument";
+import { InvoiceDocument, invDate, type InvoiceDocumentProps } from "@/components/InvoiceDocument";
 
 const invoice: InvoiceDocumentProps["invoice"] = {
   invoice_no: "INV-2026-001", invoice_date: "2026-10-15", period_from: "2026-10-01", period_to: "2026-10-15",
@@ -48,7 +48,6 @@ describe("Customer invoice layout", () => {
     expect(doc.querySelectorAll("footer")).toHaveLength(1);
   });
 });
-import { invDate } from "@/components/InvoiceDocument";
 describe("invoice dates", () => {
   it("formats as DD/MM/YY", () => {
     expect(invDate("2026-10-15")).toBe("15/10/26");
