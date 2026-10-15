@@ -196,6 +196,41 @@ select tie.ok((select status = 'issued' and seq is not null and fy = (select fy 
                where i.id = (select id from tie.ids where k = 'd1')), 'auto number assigned, total kept');
 select tie.ok((select count(*) = 2 from public.shipments where invoice_id = (select id from tie.ids where k = 'd1') and draft_invoice_id is null), 'shipments billed');
 
+-- I2. Regression: draft -> finalize hands shipments from draft_invoice_id to
+--     invoice_id atomically, and the hand-over cannot be forged.
+select tie.ok((select count(*) = 0 from public.shipments where draft_invoice_id = (select id from tie.ids where k = 'd1')), 'no shipment left reserved after finalize');
+select tie.ok((select bool_and(s.invoice_id = l.invoice_id) and count(*) = 2
+                 from public.invoice_lines l join public.shipments s on s.id = l.shipment_id
+                where l.invoice_id = (select id from tie.ids where k = 'd1')), 'every invoice line shipment linked to the issued invoice');
+reset role;
+-- fresh draft for forgery checks (TIE3 was released from d1 in step G)
+set local role authenticated;
+select tie.as_user('00000000-0000-0000-0000-0000000e0aa1');
+insert into tie.ids select 'dg', public.create_invoice_draft((select a_in from tie.c), current_date - 30, current_date);
+reset role;
+-- trusted role, flag NOT armed: cannot bill a reserved shipment directly
+select tie.expect_fail($$update public.shipments set invoice_id = draft_invoice_id, draft_invoice_id = null
+   where draft_invoice_id = (select id from tie.ids where k = 'dg')$$, 'hand-over without finalize blocked', '{P0001}', '%only be billed by finalizing%');
+-- flag armed but target invoice still a draft (not issued): blocked
+select set_config('entrysetu.finalizing', (select id::text from tie.ids where k = 'dg'), true);
+select tie.expect_fail($$update public.shipments set invoice_id = draft_invoice_id, draft_invoice_id = null
+   where draft_invoice_id = (select id from tie.ids where k = 'dg')$$, 'hand-over to non-issued invoice blocked', '{P0001}', '%only be billed by finalizing%');
+-- flag armed for a different invoice: blocked
+select set_config('entrysetu.finalizing', (select id::text from tie.ids where k = 'd1'), true);
+select tie.expect_fail($$update public.shipments set invoice_id = (select id from tie.ids where k = 'd1'), draft_invoice_id = null
+   where draft_invoice_id = (select id from tie.ids where k = 'dg')$$, 'move reserved shipment to another issued invoice blocked', '{P0001}', '%draft invoice%');
+select set_config('entrysetu.finalizing', '', true);
+-- seller cannot forge it either
+set local role authenticated;
+select tie.as_user('00000000-0000-0000-0000-0000000e0aa1');
+select tie.expect_fail($$update public.shipments set invoice_id = draft_invoice_id, draft_invoice_id = null
+   where draft_invoice_id = (select id from tie.ids where k = 'dg')$$, 'seller direct hand-over blocked', '{42501,P0001}');
+-- the real path still works and leaves the flag disarmed
+select public.finalize_invoice((select id from tie.ids where k = 'dg'));
+select tie.ok((select count(*) >= 1 and bool_and(draft_invoice_id is null) from public.shipments where invoice_id = (select id from tie.ids where k = 'dg')), 'second draft finalized, shipments linked');
+select tie.ok(coalesce(current_setting('entrysetu.finalizing', true), '') = '', 'finalize flag disarmed after finalize');
+select public.cancel_invoice((select id from tie.ids where k = 'dg'), 'regression test cleanup');
+
 -- J. Issued invoice immutable for every role
 select tie.expect_fail($$select public.save_invoice_draft((select id from tie.ids where k = 'd1'), '{}', '[]', '[]')$$, 'cannot save issued invoice', '{P0001}', 'Draft not found%');
 select tie.expect_fail($$select public.discard_invoice_draft((select id from tie.ids where k = 'd1'))$$, 'cannot discard issued invoice', '{P0001}');

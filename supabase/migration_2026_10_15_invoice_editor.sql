@@ -76,6 +76,12 @@ create trigger invoices_snapshot_client before insert on public.invoices
   for each row execute function public.invoices_snapshot_client();
 -- Freeze existing invoices with the client's CURRENT details (only rows without
 -- a snapshot). Run BEFORE renaming any client so old invoices keep original names.
+-- LIMITATION: this backfill copies the client's name/GSTIN/state/address AS THEY
+-- ARE AT THE MOMENT THIS MIGRATION RUNS. The database never stored earlier names,
+-- so if a client was already renamed (or its GSTIN/address edited) before this
+-- runs, historical invoices get the current value; the original billed name
+-- cannot be recovered from the database. Only invoices issued after this
+-- migration carry a true point-in-time snapshot.
 update public.invoices i
    set bill_to_name = c.name, bill_to_gstin = nullif(c.gstin, ''), bill_to_state = c.state, bill_to_address = c.address
   from public.clients c
@@ -727,8 +733,14 @@ begin
   exception when unique_violation then
     raise exception 'Invoice number % is already used. Please try again.', v_no using errcode = 'P0001';
   end;
+  -- Arm the draft guard for exactly this invoice, hand the shipments over, disarm.
+  perform set_config('entrysetu.finalizing', v.id::text, true);
   update public.shipments set invoice_id = v.id, draft_invoice_id = null
    where owner_id = v_uid and draft_invoice_id = v.id;
+  perform set_config('entrysetu.finalizing', '', true);
+  if exists (select 1 from public.shipments where owner_id = v_uid and draft_invoice_id = v.id) then
+    raise exception 'Could not move all draft shipments to the invoice' using errcode = 'P0001';
+  end if;
   return v.id;
 end $$;
 
