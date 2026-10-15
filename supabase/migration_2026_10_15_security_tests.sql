@@ -2,7 +2,8 @@
 -- EntrySetu security & integrity tests for the 2026-10-15 migrations.
 -- FOR MANUAL REVIEW. Run in the Supabase SQL Editor of the NEW project AFTER:
 --   entrysetu_schema.sql, migration_2026_10_15_import_weights.sql,
---   migration_2026_10_15_rate_cards_zones.sql, migration_2026_10_15_permission_hardening.sql
+--   migration_2026_10_15_rate_cards_zones.sql, migration_2026_10_15_permission_hardening.sql,
+--   migration_2026_10_15_cities_zones.sql
 -- Everything runs in one transaction and is ROLLED BACK.
 -- A blocked action must fail with the EXACT expected SQLSTATE (and message, where
 -- the block is our own rule); any other error is a FAIL, so a missing grant on a
@@ -183,14 +184,17 @@ select t15.ok((select amount = 20 from public.shipments where awb = 'D1'), 'amou
 update public.shipments set weight = 0.001 where awb = 'D1';
 select t15.ok((select weight = 0.080 from public.shipments where awb = 'D1'), 'kg weight tampering reset');
 
-select t15.expect_fail($$insert into public.shipments (client_id, awb, destination, shipment_type, weight_f) select a1, 'X1', 'Pune', 'DOX', 50 from t15.ids$$,
-  'unknown destination flagged, not charged 0', '{P0001}', 'No rate: No zone%');
-select t15.expect_fail($$insert into public.shipments (client_id, awb, destination, shipment_type, weight_f) select a1, 'X2', 'Delhi', 'DOX', 200 from t15.ids$$,
-  'missing zone rate flagged', '{P0001}', 'No rate: No Metro rate%');
-select t15.expect_fail($$insert into public.shipments (client_id, awb, destination, shipment_type, weight_f) select a1, 'X3', 'Mumbai', 'DOX', 900 from t15.ids$$,
-  'weight above slabs flagged', '{P0001}', 'No rate: No slab covers 900 g');
-select t15.expect_fail($$insert into public.shipments (client_id, awb, destination, shipment_type, service, weight_f) select a1, 'X4', 'Mumbai', 'NON-DOX', 'Fast', 1 from t15.ids$$,
-  'no card flagged', '{P0001}', 'No rate: No NON-DOX Fast rate card');
+-- (after migration 4) unpriceable shipments are stored as Needs Review with amount 0, never invoiced
+insert into public.shipments (client_id, awb, destination, shipment_type, weight_f) select a1, 'X1', 'Pune', 'DOX', 50 from t15.ids;
+select t15.ok((select pricing_status = 'needs_review' and amount = 0 and rate_applied is null and review_reason like '%has no zone%' from public.shipments where awb = 'X1'),
+  'unknown/unmapped city -> needs review, not charged');
+insert into public.shipments (client_id, awb, destination, shipment_type, weight_f) select a1, 'X2', 'Delhi', 'DOX', 200 from t15.ids;
+select t15.ok((select pricing_status = 'needs_review' and review_reason like 'No Metro rate%' from public.shipments where awb = 'X2'), 'missing zone rate -> needs review');
+insert into public.shipments (client_id, awb, destination, shipment_type, weight_f) select a1, 'X3', 'Mumbai', 'DOX', 900 from t15.ids;
+select t15.ok((select pricing_status = 'needs_review' and review_reason = 'No slab covers 900 g' from public.shipments where awb = 'X3'), 'weight above slabs -> needs review');
+insert into public.shipments (client_id, awb, destination, shipment_type, service, weight_f) select a1, 'X4', 'Mumbai', 'NON-DOX', 'Fast', 1 from t15.ids;
+select t15.ok((select pricing_status = 'needs_review' and review_reason = 'No NON-DOX Fast rate card' from public.shipments where awb = 'X4'), 'no card -> needs review');
+delete from public.shipments where awb in ('X1','X2','X3','X4');
 select t15.expect_fail($$insert into public.shipments (client_id, awb, destination, shipment_type) select a1, 'X5', 'Mumbai', 'DOX' from t15.ids$$,
   'typed shipment without weights rejected', '{23514}');
 select t15.expect_fail($$insert into public.shipments (client_id, awb, destination, shipment_type, weight_f) select a1, 'X6', 'Mumbai', 'DOX', 0 from t15.ids$$,
@@ -360,8 +364,8 @@ insert into public.shipments (client_id, awb, destination, shipment_type, weight
 select t15.ok((select amount = 110 from public.shipments where awb = 'L2'), 'legacy above top slab: 70 + ceil(1.2)*20 = 110');
 insert into public.shipments (client_id, awb, destination, shipment_type, weight_f) select c1, 'L3', 'Pune', 'DOX', 999.4 from t15.c;
 select t15.ok((select weight = 1.000 and amount = 50 from public.shipments where awb = 'L3'), 'DOX 999.4 g -> 1000 g -> 1 kg, lower boundary slab');
-select t15.expect_fail($$insert into public.shipments (client_id, awb, destination, shipment_type, service, weight_f) select c1, 'L4', 'Pune', 'DOX', 'Fast', 10 from t15.c$$,
-  'legacy ₹0 default rate never applied', '{P0001}', '%₹0%');
+insert into public.shipments (client_id, awb, destination, shipment_type, service, weight_f) select c1, 'L4', 'Pune', 'DOX', 'Fast', 10 from t15.c;
+select t15.ok((select pricing_status = 'needs_review' and amount = 0 and review_reason like '%₹0%' from public.shipments where awb = 'L4'), 'legacy ₹0 default rate never applied (needs review)');
 select t15.expect_fail($$select public.save_rate_card((select c1 from t15.c), 'DOX', 'Standard', jsonb_build_array(jsonb_build_object('min_weight',0,'max_weight',500,'rates',jsonb_build_object((select zw from t15.c),0))))$$,
   'zero zone rate rejected', '{P0001}', '%more than 0%');
 select t15.expect_fail($$select public.save_rate_card((select c1 from t15.c), 'DOX', 'Standard', jsonb_build_array(jsonb_build_object('min_weight',0,'max_weight',500,'rates',jsonb_build_object((select zw from t15.c),-5))))$$,
@@ -369,7 +373,7 @@ select t15.expect_fail($$select public.save_rate_card((select c1 from t15.c), 'D
 select public.save_rate_card((select c1 from t15.c), 'DOX', 'Standard', jsonb_build_array(jsonb_build_object('min_weight',0,'max_weight',500,'rates',jsonb_build_object((select zw from t15.c),25))));
 insert into public.shipments (client_id, awb, destination, shipment_type, weight_f) select c1, 'L5', 'Pune', 'DOX', 300 from t15.c;
 select t15.ok((select amount = 25 and rate_zone = 'West' from public.shipments where awb = 'L5'), 'zone-wise card takes over from legacy once saved');
-select t15.ok((select count(*) = 0 from public.shipments where shipment_type is not null and amount <= 0), 'no typed shipment priced at ₹0');
+select t15.ok((select count(*) = 0 from public.shipments where pricing_status = 'priced' and shipment_type is not null and amount <= 0), 'no typed shipment priced at ₹0');
 
 -- =====================================================================
 -- I. Cross-tenant regression (C vs A and B)

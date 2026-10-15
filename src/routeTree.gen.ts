@@ -15,6 +15,7 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as AppAdminRouteImport } from './routes/_app/admin'
 import { Route as AppBillingRouteImport } from './routes/_app/billing'
+import { Route as AppCitiesRouteImport } from './routes/_app/cities'
 import { Route as AppClientsRouteImport } from './routes/_app/clients'
 import { Route as AppDashboardRouteImport } from './routes/_app/dashboard'
 import { Route as AppImportRouteImport } from './routes/_app/import'
@@ -24,6 +25,7 @@ import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppShipmentsRouteImport } from './routes/_app/shipments'
 import { Route as AppInvoicesIndexRouteImport } from './routes/_app/invoices.index'
 import { Route as AppInvoicesIdRouteImport } from './routes/_app/invoices.$id'
+import { Route as ApiPublicCitySyncRouteImport } from './routes/api/public/city-sync'
 import { Route as ApiPublicRazorpayWebhookRouteImport } from './routes/api/public/razorpay-webhook'
 
 const IndexRoute = IndexRouteImport.update({
@@ -53,6 +55,11 @@ const AppAdminRoute = AppAdminRouteImport.update({
 const AppBillingRoute = AppBillingRouteImport.update({
   id: '/billing',
   path: '/billing',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppCitiesRoute = AppCitiesRouteImport.update({
+  id: '/cities',
+  path: '/cities',
   getParentRoute: () => AppRouteRoute,
 } as any)
 const AppClientsRoute = AppClientsRouteImport.update({
@@ -100,6 +107,11 @@ const AppInvoicesIdRoute = AppInvoicesIdRouteImport.update({
   path: '/$id',
   getParentRoute: () => AppInvoicesRoute,
 } as any)
+const ApiPublicCitySyncRoute = ApiPublicCitySyncRouteImport.update({
+  id: '/api/public/city-sync',
+  path: '/api/public/city-sync',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiPublicRazorpayWebhookRoute =
   ApiPublicRazorpayWebhookRouteImport.update({
     id: '/api/public/razorpay-webhook',
@@ -113,6 +125,7 @@ export interface FileRoutesByFullPath {
   '/reset-password': typeof ResetPasswordRoute
   '/admin': typeof AppAdminRoute
   '/billing': typeof AppBillingRoute
+  '/cities': typeof AppCitiesRoute
   '/clients': typeof AppClientsRoute
   '/dashboard': typeof AppDashboardRoute
   '/import': typeof AppImportRoute
@@ -121,6 +134,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof AppSettingsRoute
   '/shipments': typeof AppShipmentsRoute
   '/invoices/$id': typeof AppInvoicesIdRoute
+  '/api/public/city-sync': typeof ApiPublicCitySyncRoute
   '/api/public/razorpay-webhook': typeof ApiPublicRazorpayWebhookRoute
   '/invoices/': typeof AppInvoicesIndexRoute
 }
@@ -130,6 +144,7 @@ export interface FileRoutesByTo {
   '/reset-password': typeof ResetPasswordRoute
   '/admin': typeof AppAdminRoute
   '/billing': typeof AppBillingRoute
+  '/cities': typeof AppCitiesRoute
   '/clients': typeof AppClientsRoute
   '/dashboard': typeof AppDashboardRoute
   '/import': typeof AppImportRoute
@@ -137,6 +152,7 @@ export interface FileRoutesByTo {
   '/settings': typeof AppSettingsRoute
   '/shipments': typeof AppShipmentsRoute
   '/invoices/$id': typeof AppInvoicesIdRoute
+  '/api/public/city-sync': typeof ApiPublicCitySyncRoute
   '/api/public/razorpay-webhook': typeof ApiPublicRazorpayWebhookRoute
   '/invoices': typeof AppInvoicesIndexRoute
 }
@@ -148,6 +164,7 @@ export interface FileRoutesById {
   '/reset-password': typeof ResetPasswordRoute
   '/_app/admin': typeof AppAdminRoute
   '/_app/billing': typeof AppBillingRoute
+  '/_app/cities': typeof AppCitiesRoute
   '/_app/clients': typeof AppClientsRoute
   '/_app/dashboard': typeof AppDashboardRoute
   '/_app/import': typeof AppImportRoute
@@ -156,6 +173,7 @@ export interface FileRoutesById {
   '/_app/settings': typeof AppSettingsRoute
   '/_app/shipments': typeof AppShipmentsRoute
   '/_app/invoices/$id': typeof AppInvoicesIdRoute
+  '/api/public/city-sync': typeof ApiPublicCitySyncRoute
   '/api/public/razorpay-webhook': typeof ApiPublicRazorpayWebhookRoute
   '/_app/invoices/': typeof AppInvoicesIndexRoute
 }
@@ -167,6 +185,7 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/admin'
     | '/billing'
+    | '/cities'
     | '/clients'
     | '/dashboard'
     | '/import'
@@ -175,6 +194,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/shipments'
     | '/invoices/$id'
+    | '/api/public/city-sync'
     | '/api/public/razorpay-webhook'
     | '/invoices/'
   fileRoutesByTo: FileRoutesByTo
@@ -184,6 +204,7 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/admin'
     | '/billing'
+    | '/cities'
     | '/clients'
     | '/dashboard'
     | '/import'
@@ -191,6 +212,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/shipments'
     | '/invoices/$id'
+    | '/api/public/city-sync'
     | '/api/public/razorpay-webhook'
     | '/invoices'
   id:
@@ -201,6 +223,7 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/_app/admin'
     | '/_app/billing'
+    | '/_app/cities'
     | '/_app/clients'
     | '/_app/dashboard'
     | '/_app/import'
@@ -209,6 +232,7 @@ export interface FileRouteTypes {
     | '/_app/settings'
     | '/_app/shipments'
     | '/_app/invoices/$id'
+    | '/api/public/city-sync'
     | '/api/public/razorpay-webhook'
     | '/_app/invoices/'
   fileRoutesById: FileRoutesById
@@ -218,6 +242,7 @@ export interface RootRouteChildren {
   AppRouteRoute: typeof AppRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
+  ApiPublicCitySyncRoute: typeof ApiPublicCitySyncRoute
   ApiPublicRazorpayWebhookRoute: typeof ApiPublicRazorpayWebhookRoute
 }
 
@@ -263,6 +288,13 @@ declare module '@tanstack/react-router' {
       path: '/billing'
       fullPath: '/billing'
       preLoaderRoute: typeof AppBillingRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/_app/cities': {
+      id: '/_app/cities'
+      path: '/cities'
+      fullPath: '/cities'
+      preLoaderRoute: typeof AppCitiesRouteImport
       parentRoute: typeof AppRouteRoute
     }
     '/_app/clients': {
@@ -328,6 +360,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppInvoicesIdRouteImport
       parentRoute: typeof AppInvoicesRoute
     }
+    '/api/public/city-sync': {
+      id: '/api/public/city-sync'
+      path: '/api/public/city-sync'
+      fullPath: '/api/public/city-sync'
+      preLoaderRoute: typeof ApiPublicCitySyncRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/razorpay-webhook': {
       id: '/api/public/razorpay-webhook'
       path: '/api/public/razorpay-webhook'
@@ -355,6 +394,7 @@ const AppInvoicesRouteWithChildren = AppInvoicesRoute._addFileChildren(
 interface AppRouteRouteChildren {
   AppAdminRoute: typeof AppAdminRoute
   AppBillingRoute: typeof AppBillingRoute
+  AppCitiesRoute: typeof AppCitiesRoute
   AppClientsRoute: typeof AppClientsRoute
   AppDashboardRoute: typeof AppDashboardRoute
   AppImportRoute: typeof AppImportRoute
@@ -367,6 +407,7 @@ interface AppRouteRouteChildren {
 const AppRouteRouteChildren: AppRouteRouteChildren = {
   AppAdminRoute: AppAdminRoute,
   AppBillingRoute: AppBillingRoute,
+  AppCitiesRoute: AppCitiesRoute,
   AppClientsRoute: AppClientsRoute,
   AppDashboardRoute: AppDashboardRoute,
   AppImportRoute: AppImportRoute,
@@ -385,6 +426,7 @@ const rootRouteChildren: RootRouteChildren = {
   AppRouteRoute: AppRouteRouteWithChildren,
   AuthRoute: AuthRoute,
   ResetPasswordRoute: ResetPasswordRoute,
+  ApiPublicCitySyncRoute: ApiPublicCitySyncRoute,
   ApiPublicRazorpayWebhookRoute: ApiPublicRazorpayWebhookRoute,
 }
 export const routeTree = rootRouteImport

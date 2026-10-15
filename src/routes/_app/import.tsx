@@ -1,11 +1,13 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import { supabase, inr } from "@/lib/supabase";
 import { useClients, useRateCards, useRateSlabs, useZones, calcAmount, errMsg } from "@/lib/hooks";
 import { matchRate, normService, billedWeight } from "@/lib/rates";
+import { normCity, registerCities, zoneOf, type CityRes } from "@/lib/cities";
+import { CityZoneDialog } from "@/components/CityZoneDialog";
 import { PageHead, appHead } from "@/components/PageHead";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -50,6 +52,10 @@ function ImportPage() {
   const [createClients, setCreateClients] = useState(true);
   const [busy, setBusy] = useState(false);
   const [mapName, setMapName] = useState("");
+  const [cityMap, setCityMap] = useState<Map<string, CityRes> | null>(null);
+  const [cityTick, setCityTick] = useState(0);
+  const [dialog, setDialog] = useState(false);
+  const [autoOpened, setAutoOpened] = useState(false);
 
   const saved = useQuery({
     queryKey: ["import_mappings"],
@@ -83,6 +89,20 @@ function ImportPage() {
       setExisting(awbs);
     } catch (e) { toast.error(errMsg(e)); }
   }
+
+  const destKey = useMemo(() => {
+    if (!sheet || !map || map.destination == null) return "";
+    return [...new Set(sheet.slice(headerRow + 1).map((r) => String(r[map.destination!] ?? "").trim()).filter(Boolean))].join("\n");
+  }, [sheet, map, headerRow]);
+  useEffect(() => {
+    if (!destKey) { setCityMap(new Map()); return; }
+    let live = true;
+    setCityMap(null);
+    registerCities(destKey.split("\n")).then((m) => live && setCityMap(m)).catch((e) => { toast.error(errMsg(e)); if (live) setCityMap(new Map()); });
+    return () => { live = false; };
+  }, [destKey, cityTick]);
+  const unmapped = useMemo(() => [...(cityMap?.values() ?? [])].filter((r) => (r.status === "unmapped" && r.city_id) || r.status === "ambiguous"), [cityMap]);
+  useEffect(() => { if (unmapped.length && !autoOpened) { setDialog(true); setAutoOpened(true); } }, [unmapped, autoOpened]);
 
   const clientIds = useMemo(() => new Map(clients.map((c) => [c.name.toLowerCase(), c.id])), [clients]);
   const rows: Row[] = useMemo(() => {
@@ -119,7 +139,9 @@ function ImportPage() {
       }
       if (!row.error && !row.dup) {
         const clientId = clientIds.get(client.toLowerCase()) ?? null;
-        const res = matchRate(slabs, zones, { clientId, type: type!, service: row.service as "Standard" | "Fast", destination: row.destination, weight: billing! });
+        const city = cityMap?.get(normCity(row.destination));
+        const z = !row.destination ? { zone: null, zoneReason: "No destination city" } : cityMap ? zoneOf(city) : { zone: null, zoneReason: "Checking city…" };
+        const res = matchRate(slabs, { clientId, type: type!, service: row.service as "Standard" | "Fast", ...z, weight: billing! });
         if (res.ok) row.priced = { rate: res.rate, zone: res.zone, slab: res.slab };
         else {
           const legacy = res.noCard ? calcAmount(cards, clientId ?? "", row.service, toKg(type!, billedWeight(type!, billing!))) : null;
@@ -130,9 +152,10 @@ function ImportPage() {
       out.push(row);
     });
     return out;
-  }, [sheet, map, headerRow, existing, slabs, zones, cards, clientIds]);
+  }, [sheet, map, headerRow, existing, slabs, cards, clientIds, cityMap]);
 
-  const valid = rows.filter((r) => !r.error && !r.dup && !r.review);
+  const importable = rows.filter((r) => !r.error && !r.dup);
+  const valid = importable.filter((r) => !r.review);
   const review = rows.filter((r) => r.review).length;
   const dups = rows.filter((r) => r.dup).length;
   const errors = rows.filter((r) => r.error).length;
@@ -150,7 +173,7 @@ function ImportPage() {
     setBusy(true);
     try {
       const byName = new Map(clients.map((c) => [c.name.toLowerCase(), c.id]));
-      const missing = [...new Set(valid.filter((r) => !byName.has(r.client.toLowerCase())).map((r) => r.client))];
+      const missing = [...new Set(importable.filter((r) => !byName.has(r.client.toLowerCase())).map((r) => r.client))];
       if (missing.length) {
         if (!createClients) throw new Error(`Unknown clients: ${missing.slice(0, 5).join(", ")}${missing.length > 5 ? "…" : ""}`);
         const { data, error } = await supabase.from("clients").insert(missing.map((name) => ({ name }))).select("id, name");
@@ -158,10 +181,10 @@ function ImportPage() {
         data!.forEach((c) => byName.set(c.name.toLowerCase(), c.id));
       }
       const out = [];
-      for (const r of valid) {
+      for (const r of importable) {
         const t = r.type!; const kg = toKg(t, billedWeight(t, r.billing!));
         const cid = byName.get(r.client.toLowerCase())!;
-        const amount = r.priced!.rate; // the database re-prices and overrides this
+        const amount = r.priced?.rate ?? 0; // the database re-prices (or flags Needs Review) and overrides this
         const [f, g, h, tt] = r.weights;
         out.push({
           awb: r.awb, client_id: cid, ship_date: r.date, destination: r.destination || null, service: r.service, pieces: r.pieces, amount,
@@ -175,8 +198,8 @@ function ImportPage() {
         if (error) throw error;
         inserted += data?.length || 0;
       }
-      toast.success(`${inserted} shipments added. Skipped: ${dups + out.length - inserted} duplicates, ${errors} invalid rows, ${review} needing rate review.`);
-      setSheet(null); setMap(null);
+      toast.success(`${inserted} shipments added${review ? ` (${review} marked Needs Review)` : ""}. Skipped: ${dups + out.length - inserted} duplicates, ${errors} invalid rows.`);
+      setSheet(null); setMap(null); setAutoOpened(false);
       qc.invalidateQueries();
     } catch (e) {
       toast.error(errMsg(e));
@@ -199,7 +222,7 @@ function ImportPage() {
     <div>
       <PageHead title="Excel import"><Button variant="outline" onClick={template}>Download template</Button></PageHead>
       <div className="rounded-xl border-2 border-dashed bg-card p-8 text-center">
-        <p className="mb-3 text-sm text-muted-foreground">Upload any courier .xlsx, .xls or .csv sheet. You can match its columns below. Weights are read from columns F, G, H and T by default: grams for DOX, kilograms for NON-DOX. The highest one is the billing weight. Amounts come from the sheet or your <Link to="/rate-cards" className="text-primary underline">rate cards</Link>.</p>
+        <p className="mb-3 text-sm text-muted-foreground">Upload any courier .xlsx, .xls or .csv sheet. You can match its columns below. Weights are read from columns F, G, H and T by default: grams for DOX, kilograms for NON-DOX. The highest one is the billing weight. Prices come from your <Link to="/rate-cards" className="text-primary underline">rate cards</Link> using the zone you set for each destination city.</p>
         <input type="file" accept=".xlsx,.xls,.csv" onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f); e.target.value = ""; }} className="mx-auto block text-sm" />
       </div>
 
@@ -235,14 +258,15 @@ function ImportPage() {
 
           <section>
             <div className="mb-3 grid grid-cols-2 gap-3 text-sm sm:grid-cols-3 lg:grid-cols-6">
-              {[["Total rows", rows.length], ["Valid (new)", valid.length], ["Duplicate AWBs", dups], ["Rows with errors", errors], ["Needs rate review", review], ["DOX / NON-DOX", `${dox} / ${valid.length - dox}`]].map(([l, v]) => (
+              {[["Total rows", rows.length], ["Priced (new)", valid.length], ["Duplicate AWBs", dups], ["Rows with errors", errors], ["Will import as Needs Review", review], ["DOX / NON-DOX", `${dox} / ${valid.length - dox}`]].map(([l, v]) => (
                 <div key={l} className="rounded-lg border bg-card p-3"><div className="text-muted-foreground">{l}</div><div className="text-lg font-semibold">{v}</div></div>
               ))}
             </div>
             <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
               <div className="text-sm">Total for valid rows: {inr(total)}</div>
               <label className="flex items-center gap-2 text-sm"><Switch checked={createClients} onCheckedChange={setCreateClients} />Create new clients from sheet names</label>
-              <Button onClick={process} disabled={busy || !valid.length || missingReq.length > 0}>{busy ? "Importing…" : `Import ${valid.length} shipments`}</Button>
+              {unmapped.length > 0 && <Button variant="outline" onClick={() => setDialog(true)}>Assign zones ({unmapped.length} {unmapped.length === 1 ? "city" : "cities"})</Button>}
+              <Button onClick={process} disabled={busy || !importable.length || missingReq.length > 0 || cityMap === null}>{busy ? "Importing…" : cityMap === null ? "Checking cities…" : `Import ${importable.length} shipments`}</Button>
             </div>
             {missingReq.length > 0 && <p className="mb-3 text-sm text-destructive">Map these columns first: {missingReq.map((k) => FIELD_LABELS[k]).join(", ")}</p>}
             <div className="max-h-[520px] overflow-auto rounded-xl border bg-card">
@@ -267,6 +291,8 @@ function ImportPage() {
           </section>
         </div>
       )}
+      <CityZoneDialog open={dialog} items={unmapped} zones={zones} onClose={() => setDialog(false)}
+        onSaved={() => { setDialog(false); setCityTick((t) => t + 1); qc.invalidateQueries({ queryKey: ["zones"] }); }} />
     </div>
   );
 }
