@@ -16,7 +16,7 @@ type Money = number | string;
 export type InvoiceDocumentProps = {
   seller?: BusinessDetails | null | undefined;
   invoice: {
-    invoice_no: string;
+    invoice_no: string | null;
     invoice_date: string;
     period_from: string;
     period_to: string;
@@ -32,7 +32,13 @@ export type InvoiceDocumentProps = {
     cgst: Money;
     sgst: Money;
     total: Money;
+    charges_total?: Money | null;
+    taxable_value?: Money | null;
+    gst_rate?: Money | null;
+    round_off?: Money | null;
+    notes?: string | null;
   };
+  charges?: { id: string; label: string; mode: string; base: string; value: Money; amount: Money }[];
   shipments: {
     id: string;
     ship_date: string;
@@ -62,7 +68,12 @@ const receiverOf = (s: { receiver_name?: string | null; consignee_name?: string 
 };
 const isPhone = (v: string) => /^[+\d\s()-]{6,}$/.test(v);
 
-export function InvoiceDocument({ seller, invoice: inv, shipments }: InvoiceDocumentProps) {
+export function InvoiceDocument({ seller, invoice: inv, shipments, charges = [] }: InvoiceDocumentProps) {
+  const rate = Number(inv.gst_rate) || 18;
+  const half = rate / 2;
+  const roundOff = Number(inv.round_off ?? 0);
+  const chargeLabel = (c: { label: string; mode: string; base: string; value: Money }) =>
+    c.mode === "percent" ? `${c.label} (${+c.value}%${c.base === "declared_value" ? " of declared value" : ""})` : c.label;
   const client = inv.clients;
   // Keep the existing snapshot fallback: a layout change must not alter billed details.
   const billTo = inv.bill_to_name
@@ -70,7 +81,7 @@ export function InvoiceDocument({ seller, invoice: inv, shipments }: InvoiceDocu
     : client;
 
   return (
-    <article className="invoice-document border bg-card text-card-foreground" aria-label={`Invoice ${inv.invoice_no}`}>
+    <article className="invoice-document border bg-card text-card-foreground" aria-label={`Invoice ${inv.invoice_no ?? "draft"}`}>
       <header className="invoice-business border-b pb-5 text-center">
         <h1 className="text-2xl font-bold">{seller?.business_name}</h1>
         {seller?.address && <p className="mt-2 whitespace-pre-line">{seller.address}</p>}
@@ -94,8 +105,9 @@ export function InvoiceDocument({ seller, invoice: inv, shipments }: InvoiceDocu
         </div>
         <div className="text-right">
           <h2 className="mb-2 text-base font-bold">{inv.kind === "gst" ? "TAX INVOICE" : "INVOICE"}</h2>
+          {inv.status === "draft" && <p className="mb-2 font-bold text-muted-foreground">DRAFT — NOT ISSUED</p>}
           {inv.status === "cancelled" && <p className="mb-2 font-bold text-destructive">CANCELLED</p>}
-          <p><span className="font-semibold">Invoice number:</span> {inv.invoice_no}</p>
+          <p><span className="font-semibold">Invoice number:</span> {inv.invoice_no ?? "Assigned on finalize"}</p>
           <p><span className="font-semibold">Invoice date:</span> {invDate(inv.invoice_date)}</p>
           <p className="mt-2 font-semibold">Billing period</p>
           <p>{invDate(inv.period_from)} to {invDate(inv.period_to)}</p>
@@ -125,11 +137,15 @@ export function InvoiceDocument({ seller, invoice: inv, shipments }: InvoiceDocu
       <footer className="invoice-footer pt-5">
         <dl className="ml-auto w-64 space-y-2 tabular-nums">
           <div className="flex justify-between gap-4"><dt>Subtotal</dt><dd>{inr(Number(inv.subtotal))}</dd></div>
-          {inv.kind === "gst" && Number(inv.igst) > 0 && <div className="flex justify-between gap-4"><dt>IGST 18%</dt><dd>{inr(Number(inv.igst))}</dd></div>}
-          {inv.kind === "gst" && Number(inv.cgst) > 0 && <div className="flex justify-between gap-4"><dt>CGST 9%</dt><dd>{inr(Number(inv.cgst))}</dd></div>}
-          {inv.kind === "gst" && Number(inv.sgst) > 0 && <div className="flex justify-between gap-4"><dt>SGST 9%</dt><dd>{inr(Number(inv.sgst))}</dd></div>}
+          {charges.map((c) => <div key={c.id} className="flex justify-between gap-4"><dt>{chargeLabel(c)}</dt><dd>{inr(Number(c.amount))}</dd></div>)}
+          {charges.length > 0 && <div className="flex justify-between gap-4 border-t pt-2 font-semibold"><dt>Taxable value</dt><dd>{inr(Number(inv.taxable_value ?? inv.subtotal))}</dd></div>}
+          {inv.kind === "gst" && Number(inv.igst) > 0 && <div className="flex justify-between gap-4"><dt>IGST {rate}%</dt><dd>{inr(Number(inv.igst))}</dd></div>}
+          {inv.kind === "gst" && Number(inv.cgst) > 0 && <div className="flex justify-between gap-4"><dt>CGST {half}%</dt><dd>{inr(Number(inv.cgst))}</dd></div>}
+          {inv.kind === "gst" && Number(inv.sgst) > 0 && <div className="flex justify-between gap-4"><dt>SGST {half}%</dt><dd>{inr(Number(inv.sgst))}</dd></div>}
+          {roundOff !== 0 && <div className="flex justify-between gap-4"><dt>Round off</dt><dd>{roundOff > 0 ? "+" : "−"}{inr(Math.abs(roundOff))}</dd></div>}
           <div className="flex justify-between gap-4 border-t pt-3 text-base font-bold"><dt>Grand Total</dt><dd>{inr(Number(inv.total))}</dd></div>
         </dl>
+        {inv.notes && <p className="mt-6 whitespace-pre-line"><span className="font-semibold">Notes:</span> {inv.notes}</p>}
         <p className="mt-10 border-t pt-4 text-xs text-muted-foreground">SAC 996812 · Courier services. This is a computer-generated invoice.</p>
       </footer>
     </article>

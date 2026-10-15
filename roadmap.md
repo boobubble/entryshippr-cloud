@@ -6,5 +6,5 @@
 - [x] Rename Client + Excel name aliases (frontend; active once Phase 1 SQL applied in dev)
 - [ ] Phase 1 frontend for Safe Delete (blocked: waits for SQL review/run)
 - [ ] Phase 2 Client Merge (later)
-- [ ] Final Invoice Editor step 1: migration + rollback tests written — awaiting user review/run in DEV
-- [ ] Final Invoice Editor step 2: editor UI, list badges, reissue, PDF with charges (blocked: waits for step 1 SQL run)
+- [x] Final Invoice Editor step 1: SQL applied in DEV
+- [x] Final Invoice Editor step 2: editor UI, list badges, reissue, PDF with charges
