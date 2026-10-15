@@ -277,7 +277,7 @@ function ImportPage() {
                 </tr></thead>
                 <tbody>{rows.slice(0, 500).map((r) => (
                   <tr key={r.line} className="border-t">
-                    <td className="p-2 text-muted-foreground">{r.line}</td><td className="p-2 font-mono">{r.awb}</td><td className="p-2">{r.date}</td><td className="p-2">{r.client}</td>
+                    <td className="p-2 text-muted-foreground">{r.line}</td><td className="p-2 font-mono">{r.awb}</td><td className="p-2">{r.date}</td><td className="p-2">{up(r.client)}</td>
                     <td className="p-2">{r.type ?? "—"}</td>
                     {r.weights.map((w, j) => <td key={j} className="p-2">{w ?? ""}</td>)}
                     <td className="p-2 font-medium">{r.type && r.billing != null ? fmtWeight(r.type, r.billing) : "—"}</td>
