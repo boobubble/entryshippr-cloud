@@ -145,4 +145,27 @@
 
 body{font-family:'Manrope',system-ui,sans-serif}
 h1,h2,h3,.font-display{font-family:'Sora',sans-serif}
-@media print{.no-print{display:none!important}body{background:white}}
+.invoice-document{min-width:680px;max-width:210mm;margin-inline:auto;padding:32px;font-size:12px;line-height:1.5;overflow-wrap:anywhere;letter-spacing:0}
+.invoice-shipments th,.invoice-shipments td{padding:10px 7px}
+.invoice-shipments th{font-size:11px;font-weight:700}
+.invoice-date-column{width:14%}
+.invoice-awb-column{width:16%}
+.invoice-service-column{width:10%}
+.invoice-weight-column{width:11%}
+.invoice-amount-column{width:14%}
+@page{size:A4 portrait;margin:14mm 12mm}
+@media print{
+  .no-print{display:none!important}
+  body:has(.invoice-page){background:var(--card);color:var(--card-foreground)}
+  body:has(.invoice-page) main{max-width:none;width:100%;padding:0;margin:0}
+  body:has(.invoice-page) main,.invoice-page,.invoice-scroll,
+  body:has(.invoice-page) main :not(.invoice-document *){overflow:visible}
+  body:has(.invoice-page) .flex-1.overflow-x-auto{overflow:visible;min-width:0}
+  .invoice-document{min-width:0;max-width:none;width:100%;padding:0;border:0;font-size:9pt;box-shadow:none}
+  .invoice-business,.invoice-parties,.invoice-footer{break-inside:avoid;page-break-inside:avoid}
+  .invoice-shipments{border-collapse:collapse}
+  .invoice-shipments thead{display:table-header-group}
+  .invoice-shipments tr{break-inside:avoid;page-break-inside:avoid}
+  .invoice-shipments th,.invoice-shipments td{padding:7px 5px}
+  .invoice-shipments th{font-size:8pt}
+}
