@@ -91,16 +91,20 @@ function RateCards() {
     qc.invalidateQueries({ queryKey: ["rate_cards"] });
   }
 
+  // Only a genuinely missing table/function counts as "setup needed"; other errors are shown as-is.
+  const missing = (e: unknown) => { const x = e as { code?: string; message?: string } | null; return !!x && (x.code === "42P01" || x.code === "PGRST205" || x.code === "PGRST202" || /does not exist|schema cache/i.test(x.message ?? "")); };
+  const setupMissing = missing(zonesQ.error) || missing(slabsQ.error);
+  const loadError = !setupMissing && (zonesQ.error || slabsQ.error);
   const notReady = zonesQ.isError || slabsQ.isError;
 
   return (
     <div>
       <PageHead title="Rate cards" />
-      {notReady && <p className="mb-4 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">Zone-wise rate cards aren't available yet. Run the rate card database update in Supabase, then reload.</p>}
+      {setupMissing && <p className="mb-4 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">Database setup needed: the rate card tables are missing in your Supabase project. Run the rate card and cities database updates in the Supabase SQL Editor, then reload.</p>}
+      {loadError && <p className="mb-4 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">Couldn't load rate cards: {errMsg(loadError)}</p>}
+      <p className="mb-4 text-sm text-muted-foreground">Zone columns come from your <Link to="/cities" className="text-primary underline">City & Zone Master</Link>. Create, rename or delete zones and assign cities there.</p>
 
-      <ZoneManager zones={zones} disabled={notReady} />
-
-      <section className="mt-6 rounded-xl border bg-card p-4">
+      <section className="rounded-xl border bg-card p-4">
         <div className="mb-4 flex flex-wrap items-center gap-3">
           <select className={`${sel} min-w-52`} value={clientId} onChange={(e) => { const v = e.target.value; switchTo(() => setClientId(v)); }}>
             <option value="">Default (all clients)</option>
@@ -122,7 +126,7 @@ function RateCards() {
           </div>
         </div>
         <p className="mb-4 text-sm text-muted-foreground">Client rates are used first; if a client has none for a type and service, the Default card applies. Shipments with no matching slab, zone or rate are flagged for review, never charged ₹0.</p>
-        {!zones.length && !notReady && <p className="mb-4 text-sm text-destructive">Add at least one zone above to enter rates.</p>}
+        {!zones.length && !notReady && <p className="mb-4 text-sm text-destructive">You have no zones yet. Create them in <Link to="/cities" className="underline">City & Zone Master</Link> to enter rates.</p>}
 
         {SERVICES.map((sv) => <SlabTable key={sv} service={sv} unit={unit} zones={zones} rows={draft[sv]} errors={errors[sv]} onChange={(r) => setRows(sv, r)} />)}
 
@@ -135,7 +139,7 @@ function RateCards() {
       {legacy.length > 0 && (
         <section className="mt-8">
           <h2 className="mb-2 font-semibold">Older slabs (kg, no zones)</h2>
-          <p className="mb-3 text-sm text-muted-foreground">Used only when no zone-wise card exists. You can delete them once your new cards are set up.</p>
+          <p className="mb-3 text-sm text-muted-foreground">Kept for reference only — new shipments are priced from zone-wise cards. You can delete these once your zone-wise cards are set up.</p>
           <div className="overflow-x-auto rounded-xl border bg-card">
             <table className="w-full text-sm">
               <thead className="bg-muted text-left"><tr><th className="p-3">Applies to</th><th className="p-3">Service</th><th className="p-3">Weight (kg)</th><th className="p-3">Rate</th><th className="p-3">Extra/kg</th><th /></tr></thead>
@@ -188,50 +192,5 @@ function SlabTable({ service, unit, zones, rows, errors, onChange }: { service: 
       </div>
       {errors.length > 0 && <ul className="mt-2 list-disc pl-5 text-sm text-destructive">{errors.map((e) => <li key={e}>{e}</li>)}</ul>}
     </div>
-  );
-}
-
-function ZoneManager({ zones, disabled }: { zones: Zone[]; disabled: boolean }) {
-  const qc = useQueryClient();
-  const [edit, setEdit] = useState<Record<string, string>>({});
-  const [nw, setNw] = useState("");
-  const refresh = () => qc.invalidateQueries({ queryKey: ["zones"] });
-
-  async function add(e: React.FormEvent) {
-    e.preventDefault();
-    const { error } = await supabase.from("zones").insert({ name: nw.trim(), sort_order: zones.length });
-    if (error) { toast.error(error.code === "23505" ? "A zone with this name already exists" : errMsg(error)); return; }
-    setNw(""); refresh();
-  }
-  async function saveZone(z: Zone) {
-    const { error } = await supabase.from("zones").update({ name: edit[z.id]!.trim() }).eq("id", z.id);
-    if (error) { toast.error(errMsg(error)); return; }
-    const { [z.id]: _, ...rest } = edit; setEdit(rest); toast.success("Zone saved"); refresh();
-  }
-  async function del(z: Zone) {
-    if (!window.confirm(`Delete zone "${z.name}"? Its rates stop applying and its cities become unassigned.`)) return;
-    const { error } = await supabase.from("zones").delete().eq("id", z.id);
-    if (error) { toast.error(errMsg(error)); return; }
-    refresh(); qc.invalidateQueries({ queryKey: ["seller_city_zones"] });
-  }
-
-  return (
-    <section className="rounded-xl border bg-card p-4">
-      <h2 className="mb-1 font-semibold">Zones</h2>
-      <p className="mb-3 text-sm text-muted-foreground">Create your zones here, then choose which cities belong to each zone on the <Link to="/cities" className="text-primary underline">Cities & zones</Link> page.</p>
-      <div className="space-y-2">
-        {zones.map((z) => (
-          <div key={z.id} className="flex flex-wrap items-center gap-2">
-            <Input className="w-56" value={edit[z.id] ?? z.name} onChange={(e) => setEdit({ ...edit, [z.id]: e.target.value })} />
-            <Button size="sm" disabled={edit[z.id] == null} onClick={() => saveZone(z)}>Save</Button>
-            <Button size="sm" variant="ghost" onClick={() => del(z)}>Delete</Button>
-          </div>
-        ))}
-        <form onSubmit={add} className="flex flex-wrap items-center gap-2">
-          <Input required className="w-56" placeholder="New zone name" value={nw} onChange={(e) => setNw(e.target.value)} disabled={disabled} />
-          <Button size="sm" variant="outline" disabled={disabled}>Add zone</Button>
-        </form>
-      </div>
-    </section>
   );
 }

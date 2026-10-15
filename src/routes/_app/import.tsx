@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import { supabase, inr } from "@/lib/supabase";
-import { useClients, useRateCards, useRateSlabs, useZones, calcAmount, errMsg } from "@/lib/hooks";
+import { useClients, useRateSlabs, useZones, errMsg } from "@/lib/hooks";
 import { matchRate, normService, billedWeight } from "@/lib/rates";
 import { normCity, registerCities, zoneOf, type CityRes } from "@/lib/cities";
 import { CityZoneDialog } from "@/components/CityZoneDialog";
@@ -41,7 +41,6 @@ function toISO(v: unknown): string | null {
 
 function ImportPage() {
   const { data: clients = [] } = useClients();
-  const { data: cards = [] } = useRateCards();
   const { data: slabs = [] } = useRateSlabs();
   const { data: zones = [] } = useZones();
   const qc = useQueryClient();
@@ -148,7 +147,7 @@ function ImportPage() {
       out.push(row);
     });
     return out;
-  }, [sheet, map, headerRow, existing, slabs, cards, clientIds, cityMap]);
+  }, [sheet, map, headerRow, existing, slabs, clientIds, cityMap]);
 
   const importable = rows.filter((r) => !r.error && !r.dup);
   const valid = importable.filter((r) => !r.review);
