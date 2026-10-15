@@ -266,11 +266,47 @@ function CitiesPage() {
         <section className="rounded-xl border bg-card p-4">
           <h2 className="mb-3 font-semibold">Add a city</h2>
           <form className="grid gap-2 sm:grid-cols-2" onSubmit={(e) => { e.preventDefault(); addCity(); }}>
-            <Input placeholder="City name" value={nc.name} maxLength={80} onChange={(e) => setNc({ ...nc, name: e.target.value })} />
-            <StateSelect value={nc.state} onChange={(state) => setNc({ ...nc, state })} />
-            <Input placeholder="District (optional)" value={nc.district} maxLength={60} onChange={(e) => setNc({ ...nc, district: e.target.value })} />
-            <Button type="submit" disabled={busy}>Add city</Button>
+            <label className="grid gap-1 text-sm">City name *
+              <Input placeholder="e.g. Nashik" value={nc.name} maxLength={80} required onChange={(e) => { setNc({ ...nc, name: e.target.value }); setAmb(null); }} />
+            </label>
+            <label className="grid gap-1 text-sm">My zone *
+              <select className={`${sel} w-full`} value={nc.zone} required onChange={(e) => setNc({ ...nc, zone: e.target.value })}>
+                <option value="">Choose zone…</option>
+                {zones.map((z) => <option key={z.id} value={z.id}>{z.name}</option>)}
+                <option value={NEW_ZONE}>+ New zone</option>
+              </select>
+            </label>
+            {nc.zone === NEW_ZONE && (
+              <Input className="sm:col-span-2" placeholder="New zone name, e.g. West" value={ncZoneName} maxLength={60} onChange={(e) => setNcZoneName(e.target.value)} />
+            )}
+            <div className="sm:col-span-2">
+              <button type="button" className="text-xs text-muted-foreground underline" aria-expanded={adv} onClick={() => setAdv(!adv)}>
+                {adv ? "▾" : "▸"} Advanced: State / District (optional)
+              </button>
+              {adv && (
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                  <StateSelect value={nc.state} onChange={(state) => setNc({ ...nc, state })} />
+                  <Input placeholder="District (optional)" value={nc.district} maxLength={60} onChange={(e) => setNc({ ...nc, district: e.target.value })} />
+                  <p className="text-xs text-muted-foreground sm:col-span-2">Only needed to tell apart cities with the same name.</p>
+                </div>
+              )}
+            </div>
+            <Button type="submit" className="sm:col-span-2" disabled={busy || !!amb}>{busy ? "Saving…" : "Add & assign"}</Button>
           </form>
+          {amb && (
+            <div className="mt-3 space-y-2 rounded-lg border border-destructive/40 p-2 text-sm">
+              <p className="font-medium">"{amb.input}" matches several cities. Which one do you mean?</p>
+              <select aria-label={`Which ${amb.input}`} className={`${sel} w-full`} value={amb.pick} onChange={(e) => setAmb({ ...amb, pick: e.target.value })}>
+                <option value="">Choose…</option>
+                {amb.candidates.map((k) => <option key={k.id} value={k.id}>{k.name}{k.district ? `, ${k.district}` : ""}{k.state ? `, ${k.state}` : " (state unknown)"}</option>)}
+              </select>
+              <div className="flex gap-2">
+                <Button size="sm" disabled={busy || !amb.pick} onClick={confirmAmbiguous}>Confirm & assign</Button>
+                <Button size="sm" variant="ghost" onClick={() => setAmb(null)}>Cancel</Button>
+              </div>
+              <p className="text-xs text-muted-foreground">Your choice is remembered for your account only.</p>
+            </div>
+          )}
           {!!dupes.data?.length && (
             <div className="mt-3 rounded-lg border bg-muted/40 p-2 text-sm">
               <p className="mb-1 font-medium">Already in the city list:</p>
