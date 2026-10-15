@@ -8,3 +8,4 @@
 - [ ] Phase 2 Client Merge (later)
 - [x] Final Invoice Editor step 1: SQL applied in DEV
 - [x] Final Invoice Editor step 2: editor UI, list badges, reissue, PDF with charges
+- [x] Fast manual consignment entry page (manual charges override needs backend)
