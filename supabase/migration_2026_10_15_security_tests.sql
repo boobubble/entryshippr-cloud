@@ -392,5 +392,66 @@ select t15.ok((select next_number = 9 and prefix = 'INV' from public.invoice_ser
                where owner_id = '00000000-0000-0000-0000-0000000000b1' and kind = 'gst'), 'B''s series untouched by C');
 select t15.ok((select status = 'issued' from public.invoices where id = (select id from t15.inv where k = 'inv1')), 'B''s invoice untouched by C');
 
+-- =====================================================================
+-- J. Cities & zones: invoice ₹0 guard, sync_cities idempotency, ambiguity
+-- =====================================================================
+-- J1. sync_cities is idempotent and adopts concurrently-inserted rows (as postgres)
+select public.ensure_city('Zedtown', 'user', '00000000-0000-0000-0000-0000000000c1');   -- simulates a racing insert
+create table t15.sync1 as select public.sync_cities($j$[
+  {"name":"Aurangabad","state":"Maharashtra","aliases":["Sambhajinagar"]},
+  {"name":"Aurangabad","state":"Bihar"},
+  {"name":"Zedtown"},
+  {"name":"Zedtown"},
+  {"name":"Nashik","state":"Maharashtra","district":"Nashik"}]$j$::jsonb) r;
+select t15.ok((select (r->>'added')::int = 3 and (r->>'aliases')::int = 1 from t15.sync1), 'sync adds 3 new cities, adopts existing Zedtown, no duplicate error');
+select t15.ok((select count(*) = 1 from public.cities where name_norm = 'zedtown'), 'no duplicate city from racing insert');
+select t15.ok((select (r->>'added')::int = 0 and (r->>'updated')::int = 0 and (r->>'aliases')::int = 0
+               from (select public.sync_cities($j$[
+  {"name":"Aurangabad","state":"Maharashtra","aliases":["Sambhajinagar"]},
+  {"name":"Aurangabad","state":"Bihar"},{"name":"Zedtown"},
+  {"name":"Nashik","state":"Maharashtra","district":"Nashik"}]$j$::jsonb) r) x), 'second identical sync is a no-op');
+select t15.ok((select count(*) = 2 from public.cities where name_norm = 'aurangabad'), 'Aurangabad still exactly 2 rows');
+select t15.expect_fail($$select public.sync_cities('{"x":1}'::jsonb)$$, 'sync rejects non-array payload', '{P0001}', 'Invalid registry');
+set local role authenticated;
+select t15.as_user('00000000-0000-0000-0000-0000000000c1');
+select t15.expect_fail($$select public.sync_cities('[]'::jsonb)$$, 'users cannot run sync_cities', '{42501}');
+
+-- J2. Ambiguous city is never auto-resolved by an existing zone mapping
+insert into public.seller_city_zones (city_id, zone_id)
+  select c.id, (select zw from t15.c) from public.cities c where c.name_norm = 'aurangabad' and c.state = 'Maharashtra';
+select t15.ok((select status = 'ambiguous' and city_id is null from public.register_cities('{Aurangabad}')), 'mapping one candidate does NOT resolve the ambiguous name');
+insert into public.shipments (client_id, awb, destination, shipment_type, weight_f) select c1, 'AMB1', 'Aurangabad', 'DOX', 300 from t15.c;
+select t15.ok((select pricing_status = 'needs_review' and city_id is null and amount = 0 from public.shipments where awb = 'AMB1'), 'ambiguous shipment stays Needs Review');
+insert into public.seller_city_aliases (alias_norm, city_id) select 'Aurangabad', id from public.cities where name_norm = 'aurangabad' and state = 'Maharashtra';
+select t15.ok((select pricing_status = 'priced' and amount = 25 and rate_zone = 'West' from public.shipments where awb = 'AMB1'), 'explicit seller confirmation resolves and re-prices');
+-- cross-tenant: B neither sees nor benefits from or changes C's confirmation
+select t15.as_user('00000000-0000-0000-0000-0000000000b1');
+select t15.ok((select count(*) = 0 from public.seller_city_aliases) and (select count(*) = 0 from public.seller_city_zones), 'B sees none of C''s aliases/mappings');
+select t15.ok((select status = 'ambiguous' from public.register_cities('{Aurangabad}')), 'C''s confirmation does not apply to B');
+select t15.expect_fail($$insert into public.seller_city_aliases (owner_id, alias_norm, city_id) select '00000000-0000-0000-0000-0000000000c1', 'aurangabad bihar', id from public.cities where name_norm = 'aurangabad' and state = 'Bihar'$$,
+  'B cannot write an alias for C', '{42501}');
+update public.seller_city_aliases set city_id = (select id from public.cities where name_norm = 'aurangabad' and state = 'Bihar');  -- RLS: 0 rows
+delete from public.seller_city_aliases;   -- RLS: 0 rows
+delete from public.seller_city_zones;     -- RLS: 0 rows
+select t15.as_user('00000000-0000-0000-0000-0000000000c1');
+select t15.ok((select count(*) = 1 from public.seller_city_aliases) and (select count(*) = 1 from public.seller_city_zones), 'C''s alias and mapping untouched by B');
+
+-- J3. Invoices are blocked when any selected shipment is ₹0 or less
+insert into public.shipments (client_id, awb, ship_date, weight, amount) select c1, 'Z0', current_date - 100, 1, 0 from t15.c;   -- untyped manual
+insert into public.shipments (client_id, awb, ship_date, weight, amount) select c1, 'Z1', current_date - 100, 1, 40 from t15.c;
+select t15.expect_fail($$select public.create_invoice((select c1 from t15.c), current_date - 100, current_date - 100)$$,
+  'invoice blocked by ₹0 untyped shipment', '{P0001}', '%₹0 or less%');
+select t15.ok((select count(*) = 0 from public.invoices), 'no invoice created and no number consumed');
+select t15.ok((select bool_and(invoice_id is null) from public.shipments where awb in ('Z0','Z1')), 'shipments stay unbilled');
+select t15.expect_fail($$update public.shipments set invoice_id = (select id from t15.inv where k = 'inv1') where awb = 'Z0'$$,
+  'user cannot set invoice_id directly', '{42501}');
+update public.shipments set amount = 30 where awb = 'Z0';
+select t15.ok((select public.create_invoice((select c1 from t15.c), current_date - 100, current_date - 100) is not null), 'invoice allowed once amount > 0');
+reset role;
+select t15.expect_fail($$update public.shipments set amount = 0 where awb = 'Z0'$$, 'billed shipment amount cannot drop to ₹0', '{23514,P0001,42501}');
+select t15.expect_fail($$insert into public.shipments (owner_id, client_id, awb, weight, amount, invoice_id)
+  select '00000000-0000-0000-0000-0000000000c1', c1, 'Z2', 1, 0, (select invoice_id from public.shipments where awb = 'Z0') from t15.c$$,
+  'DB constraint: ₹0 shipment can never carry an invoice', '{23514}');
+
 do $$ begin raise notice 'ALL TESTS PASSED'; end $$;
 rollback;
