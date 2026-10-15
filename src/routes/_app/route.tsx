@@ -19,7 +19,7 @@ const nav = [
   { to: "/shipments", label: "Shipments", icon: Truck },
   { to: "/clients", label: "Clients", icon: Users },
   { to: "/rate-cards", label: "Rate cards", icon: Gauge },
-  { to: "/cities", label: "Cities & zones", icon: MapPin },
+  { to: "/cities", label: "City & Zone Master", icon: MapPin },
   { to: "/invoices", label: "Invoices", icon: Receipt },
   { to: "/billing", label: "Subscription", icon: CreditCard },
   { to: "/settings", label: "Business settings", icon: Settings },
