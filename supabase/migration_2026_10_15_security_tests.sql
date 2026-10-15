@@ -4,6 +4,7 @@
 --   entrysetu_schema.sql, migration_2026_10_15_import_weights.sql,
 --   migration_2026_10_15_rate_cards_zones.sql, migration_2026_10_15_permission_hardening.sql,
 --   migration_2026_10_15_cities_zones.sql
+-- Section J covers: ₹0 invoice guard, sync_cities idempotency/concurrency, ambiguous-city confirmation.
 -- Everything runs in one transaction and is ROLLED BACK.
 -- A blocked action must fail with the EXACT expected SQLSTATE (and message, where
 -- the block is our own rule); any other error is a FAIL, so a missing grant on a
@@ -446,6 +447,7 @@ select t15.ok((select bool_and(invoice_id is null) from public.shipments where a
 select t15.expect_fail($$update public.shipments set invoice_id = (select id from t15.inv where k = 'inv1') where awb = 'Z0'$$,
   'user cannot set invoice_id directly', '{42501}');
 update public.shipments set amount = 30 where awb = 'Z0';
+update public.clients set is_gst = false where name = 'C1';
 select t15.ok((select public.create_invoice((select c1 from t15.c), current_date - 100, current_date - 100) is not null), 'invoice allowed once amount > 0');
 reset role;
 select t15.expect_fail($$update public.shipments set amount = 0 where awb = 'Z0'$$, 'billed shipment amount cannot drop to ₹0', '{23514,P0001,42501}');
