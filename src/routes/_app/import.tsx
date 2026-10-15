@@ -194,7 +194,7 @@ function ImportPage() {
   }
 
   const colOptions = Array.from({ length: width }, (_, i) => ({ i, label: `${colLetter(i)} · ${String(headers[i] ?? "").trim() || "(no header)"}` }));
-  const total = valid.reduce((a, r) => a + (r.amount ?? 0), 0);
+  const total = valid.reduce((a, r) => a + (r.amount ?? r.priced?.rate ?? 0), 0);
 
   return (
     <div>
@@ -241,7 +241,7 @@ function ImportPage() {
               ))}
             </div>
             <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-              <div className="text-sm">Sheet amounts on valid rows: {inr(total)}</div>
+              <div className="text-sm">Total for valid rows: {inr(total)}</div>
               <label className="flex items-center gap-2 text-sm"><Switch checked={createClients} onCheckedChange={setCreateClients} />Create new clients from sheet names</label>
               <Button onClick={process} disabled={busy || !valid.length || missingReq.length > 0}>{busy ? "Importing…" : `Import ${valid.length} shipments`}</Button>
             </div>

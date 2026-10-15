@@ -36,8 +36,8 @@ function InvoiceView() {
         </div>
         <div className="mt-6 border-t pt-4"><b>Bill to:</b> {c?.name}<br />{c?.address}{c?.state && <>, {c.state}</>}{c?.gstin && <><br />GSTIN: {c.gstin}</>}</div>
         <table className="mt-6 w-full">
-          <thead className="border-y text-left"><tr><th className="py-2">#</th><th>AWB</th><th>Date</th><th>Destination</th><th>Service</th><th>Kg</th><th className="text-right">Amount</th></tr></thead>
-          <tbody>{ships.map((s, i) => <tr key={s.id} className="border-b"><td className="py-1">{i + 1}</td><td className="font-mono">{s.awb}</td><td>{s.ship_date}</td><td>{s.destination}</td><td>{s.service}</td><td>{s.weight}</td><td className="text-right">{inr(s.amount)}</td></tr>)}</tbody>
+          <thead className="border-y text-left"><tr><th className="py-2">#</th><th>AWB</th><th>Date</th><th>Destination</th><th>Service</th><th>Weight</th><th>Rate applied</th><th className="text-right">Amount</th></tr></thead>
+          <tbody>{ships.map((s, i) => <tr key={s.id} className="border-b"><td className="py-1">{i + 1}</td><td className="font-mono">{s.awb}</td><td>{s.ship_date}</td><td>{s.destination}</td><td>{s.service}</td><td>{s.billing_weight != null && s.weight_unit ? `${+s.billing_weight} ${s.weight_unit}` : `${s.weight} kg`}{s.shipment_type ? ` (${s.shipment_type})` : ""}</td><td className="text-xs">{[s.rate_zone, s.rate_slab].filter(Boolean).join(" · ")}{s.rate_applied != null ? ` @ ${inr(s.rate_applied)}` : ""}</td><td className="text-right">{inr(s.amount)}</td></tr>)}</tbody>
         </table>
         <div className="ml-auto mt-4 w-64 space-y-1">
           <div className="flex justify-between"><span>Subtotal</span><span>{inr(inv.subtotal)}</span></div>
