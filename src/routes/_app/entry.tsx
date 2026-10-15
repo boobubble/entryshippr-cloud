@@ -184,7 +184,7 @@ function Entry() {
           <div><label className={label} htmlFor="e-awb">AWB Number</label>
             <input id="e-awb" ref={awbRef} className={field} autoComplete="off" maxLength={40} value={d.awb} onChange={(e) => setD({ ...d, awb: e.target.value })} /></div>
           <div><label className={label} htmlFor="e-client">Client / Party</label>
-            <Combo id="e-client" value={clientText} picked={!!d.client_id && clientOpts.length <= 1 && up(clientText) === clientOpts[0]?.label} options={clientOpts} placeholder="Type to search"
+            <Combo id="e-client" value={clientText} picked={!!d.client_id} options={clientOpts} placeholder="Type to search"
               onText={(v) => { setClientText(v); setD({ ...d, client_id: "" }); }}
               onPick={async (o) => {
                 setClientText(o.label); const next = { ...d, client_id: o.key }; setD(next);
