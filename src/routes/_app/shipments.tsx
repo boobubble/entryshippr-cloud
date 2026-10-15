@@ -32,6 +32,7 @@ function Shipments() {
   const [f, setF] = useState<Form>({ awb: "", client_id: "", ship_date: today, destination: "", service: "Standard", type: "NON-DOX", weight: "", pieces: "1" });
   const [pending, setPending] = useState<{ form: Form; city: CityRes } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const { data: rows = [] } = useQuery({
     queryKey: ["shipments", filter],
@@ -77,6 +78,26 @@ function Shipments() {
     if (r.invoice_id) { toast.error("Already invoiced — delete the invoice first."); return; }
     const { error } = await supabase.from("shipments").delete().eq("id", r.id);
     if (error) { toast.error(errMsg(error)); return; }
+    qc.invalidateQueries({ queryKey: ["shipments"] });
+  }
+
+  const deletable = rows.filter((r) => !r.invoice_id);
+  const selRows = deletable.filter((r) => selected.has(r.id));
+  function toggle(id: string, on: boolean) {
+    setSelected((s) => { const n = new Set(s); on ? n.add(id) : n.delete(id); return n; });
+  }
+  function toggleAll(on: boolean) {
+    setSelected(on ? new Set(deletable.map((r) => r.id)) : new Set());
+  }
+  async function delSelected() {
+    if (!selRows.length) return;
+    if (!window.confirm(`Delete ${selRows.length} shipment${selRows.length > 1 ? "s" : ""}? This cannot be undone.`)) return;
+    setBusy(true);
+    const { error } = await supabase.from("shipments").delete().in("id", selRows.map((r) => r.id));
+    setBusy(false);
+    if (error) { toast.error(errMsg(error)); return; }
+    toast.success(`Deleted ${selRows.length} shipment${selRows.length > 1 ? "s" : ""}`);
+    setSelected(new Set());
     qc.invalidateQueries({ queryKey: ["shipments"] });
   }
   function exportXlsx() {
@@ -133,16 +154,17 @@ function Shipments() {
         <Input type="date" className="w-40" value={filter.from} onChange={(e) => setFilter({ ...filter, from: e.target.value })} />
         <Input type="date" className="w-40" value={filter.to} onChange={(e) => setFilter({ ...filter, to: e.target.value })} />
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={filter.review} onChange={(e) => setFilter({ ...filter, review: e.target.checked })} />Needs review only</label>
+        {selRows.length > 0 && <Button variant="destructive" size="sm" disabled={busy} onClick={delSelected}>Delete selected ({selRows.length})</Button>}
       </div>
       <div className="overflow-x-auto rounded-xl border bg-card">
         <table className="w-full text-sm">
-          <thead className="bg-muted text-left"><tr><th className="p-3">AWB</th><th className="p-3">Date</th><th className="p-3">Client</th><th className="p-3">City</th><th className="p-3">Service</th><th className="p-3">Weight</th><th className="p-3 text-right">Amount</th><th className="p-3">Status</th><th /></tr></thead>
+          <thead className="bg-muted text-left"><tr><th className="p-3 w-8"><input type="checkbox" aria-label="Select all" checked={deletable.length > 0 && selRows.length === deletable.length} onChange={(e) => toggleAll(e.target.checked)} /></th><th className="p-3">AWB</th><th className="p-3">Date</th><th className="p-3">Client</th><th className="p-3">City</th><th className="p-3">Service</th><th className="p-3">Weight</th><th className="p-3 text-right">Amount</th><th className="p-3">Status</th><th /></tr></thead>
           <tbody>
             {rows.map((r) => (
-              <tr key={r.id} className="border-t"><td className="p-3 font-mono">{r.awb}</td><td className="p-3">{r.ship_date}</td><td className="p-3">{up(r.clients?.name)}</td><td className="p-3">{up(r.destination)}</td><td className="p-3">{r.service}</td><td className="p-3">{r.billing_weight != null && r.weight_unit ? `${+r.billing_weight} ${r.weight_unit}` : `${r.weight} kg`}{r.shipment_type ? ` · ${r.shipment_type}` : ""}</td><td className="p-3 text-right">{r.pricing_status === "needs_review" ? "—" : inr(r.amount)}</td><td className="p-3">{r.pricing_status === "needs_review" ? <span className="text-destructive">Needs review: {r.review_reason}</span> : r.invoice_id ? "Billed" : "Unbilled"}</td>
+              <tr key={r.id} className="border-t"><td className="p-3">{r.invoice_id ? null : <input type="checkbox" aria-label={`Select ${r.awb}`} checked={selected.has(r.id)} onChange={(e) => toggle(r.id, e.target.checked)} />}</td><td className="p-3 font-mono">{r.awb}</td><td className="p-3">{r.ship_date}</td><td className="p-3">{up(r.clients?.name)}</td><td className="p-3">{up(r.destination)}</td><td className="p-3">{r.service}</td><td className="p-3">{r.billing_weight != null && r.weight_unit ? `${+r.billing_weight} ${r.weight_unit}` : `${r.weight} kg`}{r.shipment_type ? ` · ${r.shipment_type}` : ""}</td><td className="p-3 text-right">{r.pricing_status === "needs_review" ? "—" : inr(r.amount)}</td><td className="p-3">{r.pricing_status === "needs_review" ? <span className="text-destructive">Needs review: {r.review_reason}</span> : r.invoice_id ? "Billed" : "Unbilled"}</td>
                 <td className="p-3"><Button size="sm" variant="ghost" onClick={() => del(r)}>Delete</Button></td></tr>
             ))}
-            {!rows.length && <tr><td colSpan={9} className="p-6 text-center text-muted-foreground">No shipments found.</td></tr>}
+            {!rows.length && <tr><td colSpan={10} className="p-6 text-center text-muted-foreground">No shipments found.</td></tr>}
           </tbody>
         </table>
       </div>
