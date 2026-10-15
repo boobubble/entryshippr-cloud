@@ -8,7 +8,7 @@
 -- =====================================================================
 begin;
 create schema tie;
-grant usage on schema tie to authenticated;
+grant usage on schema tie to authenticated, service_role;
 create function tie.expect_fail(q text, label text, codes text[], msg_like text default null)
 returns void language plpgsql as $$
 declare v_state text; v_msg text;
@@ -29,7 +29,7 @@ begin
   perform set_config('request.jwt.claims', json_build_object('sub', uid, 'role', 'authenticated')::text, true);
   perform set_config('request.jwt.claim.sub', uid::text, true);
 end $$;
-grant execute on all functions in schema tie to authenticated;
+grant execute on all functions in schema tie to authenticated, service_role;
 
 -- Snapshots of existing data (must be unchanged at the end)
 create table tie.inv_before as select id, status, invoice_no, subtotal, cgst, sgst, igst, total, bill_to_name from public.invoices;
