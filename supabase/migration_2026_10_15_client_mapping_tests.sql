@@ -1,6 +1,6 @@
 -- =====================================================================
--- EntrySetu V2 — Phase 1 security tests: client name mappings, raw Excel
--- client name, safe client delete. DEVELOPMENT ONLY. Run AFTER
+-- EntrySetu V2 — Phase 1 security tests: client rename + Excel alias mappings,
+-- raw Excel client name, invoice bill-to snapshots. DEVELOPMENT ONLY. Run AFTER
 -- migration_2026_10_15_client_mapping.sql. One transaction, ROLLED BACK —
 -- leaves no test data. A blocked action must fail with the EXACT SQLSTATE.
 -- Last notice: "ALL CLIENT MAPPING TESTS PASSED".
@@ -32,7 +32,7 @@ grant execute on all functions in schema tcm to authenticated;
 
 -- A. Privilege catalogue
 do $$ begin
-  if has_table_privilege('authenticated','public.clients','DELETE') then raise exception 'FAIL: direct client DELETE still granted'; end if;
+  if not has_table_privilege('authenticated','public.clients','DELETE') then raise exception 'FAIL: existing client DELETE was removed'; end if;
   if has_table_privilege('anon','public.client_name_mappings','SELECT') then raise exception 'FAIL: anon can read mappings'; end if;
   if has_column_privilege('authenticated','public.client_name_mappings','owner_id','INSERT')
      or has_column_privilege('authenticated','public.client_name_mappings','owner_id','UPDATE')
@@ -41,8 +41,11 @@ do $$ begin
     raise exception 'FAIL: owner_id/alias_norm writable'; end if;
   if has_column_privilege('authenticated','public.shipments','source_client_name','UPDATE') then raise exception 'FAIL: raw name updatable'; end if;
   if not has_column_privilege('authenticated','public.shipments','source_client_name','INSERT') then raise exception 'FAIL: raw name not insertable'; end if;
-  if has_function_privilege('anon','public.delete_client(uuid,integer)','EXECUTE') then raise exception 'FAIL: anon can call delete_client'; end if;
-  raise notice 'PASS privileges';
+  if has_table_privilege('authenticated','public.invoices','INSERT') or has_table_privilege('authenticated','public.invoices','UPDATE')
+     or has_column_privilege('authenticated','public.invoices','bill_to_name','UPDATE') then
+    raise exception 'FAIL: sellers can write invoices'; end if;
+  if exists (select 1 from public.invoices where bill_to_name is null) then raise exception 'FAIL: backfill left invoices without a snapshot'; end if;
+  raise notice 'PASS privileges, delete unchanged, backfill complete';
 end $$;
 
 -- B. Two test sellers (trial profiles created by the existing signup trigger)
@@ -51,22 +54,19 @@ insert into auth.users (instance_id, id, aud, role, email, encrypted_password, e
  ('00000000-0000-0000-0000-000000000000','00000000-0000-0000-0000-0000000c0bb1','authenticated','authenticated','tcm-b@test.local','',now(),'{"provider":"email","providers":["email"]}','{}',now(),now());
 create table tcm.inv_before as select id, invoice_no, total, cgst, sgst, igst from public.invoices;
 create table tcm.amt_before as select id, amount, invoice_id from public.shipments;
+create table tcm.snap_before as select id, bill_to_name, bill_to_gstin, bill_to_state from public.invoices;
 
 set local role authenticated;
 select tcm.as_user('00000000-0000-0000-0000-0000000c0aa1');
-insert into public.clients (name, is_gst) values ('abc traders', true), ('ABC TRADERS', false), ('A KEEP', true), ('A RATED', true), ('A EMPTY', true);
+insert into public.clients (name, is_gst) values ('abc traders', true), ('ABC TRADERS', false), ('A KEEP', false), ('A EMPTY', true);
 select tcm.as_user('00000000-0000-0000-0000-0000000c0bb1');
 insert into public.clients (name) values ('B ONE');
 reset role;
 create table tcm.c as select
  (select id from public.clients where name='abc traders') a_gst, (select id from public.clients where name='ABC TRADERS') a_ng,
- (select id from public.clients where name='A KEEP') a_keep, (select id from public.clients where name='A RATED') a_rated,
+ (select id from public.clients where name='A KEEP') a_keep,
  (select id from public.clients where name='A EMPTY') a_empty, (select id from public.clients where name='B ONE') b_one;
 grant select on tcm.c to authenticated;
-insert into public.rate_cards (owner_id, client_id, service, min_weight, max_weight, rate)
-  select '00000000-0000-0000-0000-0000000c0aa1', a_rated, 'Standard', 0, 1, 50 from tcm.c union all
-  select '00000000-0000-0000-0000-0000000c0aa1', a_rated, 'Standard', 1, 5, 80 from tcm.c;
-
 -- C. Mappings: create, normalise, duplicates on INSERT and UPDATE, no overwrite
 set local role authenticated;
 select tcm.as_user('00000000-0000-0000-0000-0000000c0aa1');
@@ -90,7 +90,7 @@ select tcm.as_user('00000000-0000-0000-0000-0000000c0bb1');
 select tcm.ok((select count(*) = 0 from public.client_name_mappings), 'B cannot read A mappings');
 update public.client_name_mappings set raw_name = 'hacked';
 delete from public.client_name_mappings;
-select tcm.expect_fail($$select public.delete_client((select a_empty from tcm.c), 0)$$, 'B cannot delete A client', '{P0002}');
+delete from public.clients where id = (select a_empty from tcm.c);
 reset role;
 select tcm.ok((select count(*) = 2 from public.client_name_mappings where owner_id = '00000000-0000-0000-0000-0000000c0aa1' and raw_name <> 'hacked'), 'A mappings untouched by B');
 select tcm.ok((select count(*) = 1 from public.clients where name = 'A EMPTY'), 'A client untouched by B');
@@ -102,35 +102,42 @@ insert into public.shipments (client_id, awb, destination, weight, source_client
 select tcm.ok((select source_client_name = 'a keep pvt' from public.shipments where awb = 'TCM1'), 'raw name stored');
 select tcm.expect_fail($$update public.shipments set source_client_name = 'changed' where awb = 'TCM1'$$, 'raw name not updatable', '{42501}');
 
--- F. Safe delete
-select tcm.expect_fail($$delete from public.clients where id = (select a_empty from tcm.c)$$, 'direct DELETE denied', '{42501}');
-select tcm.expect_fail($$select public.delete_client((select a_keep from tcm.c), 0)$$, 'blocked with shipments', '{P0001}', '%deactivate%');
-select tcm.expect_fail($$select public.delete_client((select a_ng from tcm.c), 0)$$, 'blocked with mappings', '{P0001}', '%mapping%');
-select tcm.expect_fail($$select public.delete_client((select a_rated from tcm.c), 0)$$, 'rate cards need confirmation', '{P0001}', '%2 rate card%');
-select tcm.expect_fail($$select public.delete_client((select a_rated from tcm.c), 1)$$, 'wrong rate card count refused', '{P0001}');
-select tcm.ok((select count(*) = 2 from public.rate_cards where client_id = (select a_rated from tcm.c)), 'rate cards intact after refusals');
-select public.delete_client((select a_rated from tcm.c), 2);
-select tcm.ok((select count(*) = 0 from public.clients where id = (select a_rated from tcm.c)), 'confirmed delete removed client');
-select public.delete_client((select a_empty from tcm.c));
-select tcm.ok((select count(*) = 0 from public.clients where id = (select a_empty from tcm.c)), 'unused client deleted');
-update public.clients set active = false where id = (select a_keep from tcm.c);
-select tcm.ok((select not active from public.clients where id = (select a_keep from tcm.c)), 'deactivate still works');
+-- F. Rename keeps Excel name; invoice snapshot frozen
+select tcm.as_user('00000000-0000-0000-0000-0000000c0aa1');
+update public.shipments set amount = 120 where awb = 'TCM1';
+select tcm.ok((select public.create_invoice((select a_keep from tcm.c), current_date - 30, current_date) is not null), 'invoice issued');
+select tcm.ok((select bill_to_name = 'A KEEP' from public.invoices where client_id = (select a_keep from tcm.c)), 'snapshot taken at issue');
+create temp table tcm_inv as select id, invoice_no, total from public.invoices where client_id = (select a_keep from tcm.c);
+update public.clients set name = 'JAI BALAJI TRADERS' where id = (select a_keep from tcm.c);
+insert into public.client_name_mappings (raw_name, client_id) select 'A KEEP', a_keep from tcm.c;
+select tcm.ok((select bill_to_name = 'A KEEP' from public.invoices where client_id = (select a_keep from tcm.c)), 'renamed client: invoice keeps original name');
+select tcm.ok((select client_id = (select a_keep from tcm.c) from public.client_name_mappings where alias_norm = 'a keep'), 'old name maps to same client_id');
+select tcm.ok((select count(*) = 0 from (select id, invoice_no, total from public.invoices where client_id = (select a_keep from tcm.c) except select * from tcm_inv) d), 'invoice number and total unchanged');
 reset role;
-select tcm.expect_fail($$delete from public.clients where id = (select a_ng from tcm.c)$$, 'FK restrict: mapped client cannot be deleted', '{23503}');
+select tcm.expect_fail($$update public.invoices set bill_to_name = 'CHANGED' where client_id = (select a_keep from tcm.c)$$, 'snapshot frozen even for owner role', '{42501}');
 
--- G. Expired plan: read yes, write no
+-- G. Existing Delete still works; mappings never dangle; expired plan read-only
+set local role authenticated;
+select tcm.as_user('00000000-0000-0000-0000-0000000c0aa1');
+insert into public.client_name_mappings (raw_name, client_id) select 'EMPTY ALIAS', a_empty from tcm.c;
+delete from public.clients where id = (select a_empty from tcm.c);
+select tcm.ok((select count(*) = 0 from public.clients where id = (select a_empty from tcm.c)), 'existing Delete still works');
+select tcm.ok((select count(*) = 0 from public.client_name_mappings where alias_norm = 'empty alias'), 'mapping removed with deleted client');
+select tcm.expect_fail($$delete from public.clients where id = (select a_keep from tcm.c)$$, 'client with shipments/invoices still protected', '{23503}');
+reset role;
 update public.profiles set trial_ends_at = now() - interval '1 day', plan = null where id = '00000000-0000-0000-0000-0000000c0aa1';
 set local role authenticated;
 select tcm.as_user('00000000-0000-0000-0000-0000000c0aa1');
-select tcm.ok((select count(*) = 2 from public.client_name_mappings), 'expired seller can read mappings');
+select tcm.ok((select count(*) >= 1 from public.client_name_mappings), 'expired seller can read mappings');
 select tcm.expect_fail($$insert into public.client_name_mappings (raw_name, client_id) select 'late', a_gst from tcm.c$$, 'expired: no new mapping', '{42501}');
-select tcm.expect_fail($$select public.delete_client((select a_gst from tcm.c), 0)$$, 'expired: no delete', '{42501}');
 reset role;
 
 -- H. Financial history unchanged
 select tcm.ok((select count(*) = 0 from (select * from tcm.inv_before except select id, invoice_no, total, cgst, sgst, igst from public.invoices) d)
           and (select count(*) = (select count(*) from tcm.inv_before) from public.invoices), 'invoices unchanged');
 select tcm.ok((select count(*) = 0 from (select * from tcm.amt_before except select id, amount, invoice_id from public.shipments) d), 'existing shipment amounts and billing unchanged');
+
+select tcm.ok((select count(*) = 0 from (select * from tcm.snap_before except select id, bill_to_name, bill_to_gstin, bill_to_state from public.invoices) d), 'existing invoice snapshots unchanged');
 
 do $$ begin raise notice 'ALL CLIENT MAPPING TESTS PASSED'; end $$;
 rollback;
