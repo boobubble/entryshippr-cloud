@@ -8,4 +8,6 @@
 - [ ] Phase 2 Client Merge (later)
 - [x] Final Invoice Editor step 1: SQL applied in DEV
 - [x] Final Invoice Editor step 2: editor UI, list badges, reissue, PDF with charges
-- [x] Fast manual consignment entry page (manual charges override needs backend)
+- [x] Fast manual consignment entry page + double-save lock
+- [ ] AWB series + Manual charges SQL — awaiting user run in DEV
+- [ ] AWB series settings + Auto/Manual charges UI (blocked: waits for SQL run)

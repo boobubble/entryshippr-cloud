@@ -9,3 +9,5 @@
 - Invoices are edited only as drafts via create/save/finalize_invoice_draft RPCs; line edits live in invoice_lines/invoice_charges and totals are recomputed in PostgreSQL — shipments, rate cards and issued invoices stay untouched.
 - Draft-reserved shipments change only via one-shot rows in entrysetu_private.shipment_transfer_grants written by finalize/save/discard (never session settings) — callers cannot forge authority.
 - Invoice Bill To Name is edited only on drafts via save_invoice_draft (bill_to_name_custom keeps it through recalc; reissue inherits it) — client records and issued invoices never change.
+- AWB numbers are only suggested by next_awb() from awb_series (client series, else seller default), never reserved; the unique (owner_id, awb) constraint is the sole duplicate/concurrency guard — failed saves consume nothing.
+- Manual charges live in shipments.charge_mode/manual_amount; shipments_apply_rate keeps manual amounts, only entrysetu_private.can_manual_charge (owner today) may set them, and shipment_charge_audit is trigger-written and immutable — extend staff access only in that function.
