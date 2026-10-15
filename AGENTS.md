@@ -8,3 +8,4 @@
 - InvoiceDocument is the shared read-only invoice preview and print markup; scoped A4 print styles repeat shipment headers without repeating totals, keeping PDF and on-screen billing details consistent.
 - Invoices are edited only as drafts via create/save/finalize_invoice_draft RPCs; line edits live in invoice_lines/invoice_charges and totals are recomputed in PostgreSQL — shipments, rate cards and issued invoices stay untouched.
 - Draft-reserved shipments change only via one-shot rows in entrysetu_private.shipment_transfer_grants written by finalize/save/discard (never session settings) — callers cannot forge authority.
+- Invoice Bill To Name is edited only on drafts via save_invoice_draft (bill_to_name_custom keeps it through recalc; reissue inherits it) — client records and issued invoices never change.
