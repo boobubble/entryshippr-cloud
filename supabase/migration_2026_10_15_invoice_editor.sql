@@ -115,13 +115,19 @@ alter table public.invoices drop constraint if exists invoices_draft_unnumbered_
 alter table public.invoices add constraint invoices_draft_unnumbered_chk
   check (status <> 'draft' or (seq is null and invoice_no is null));
 -- NOT VALID: checked for every new/changed row; historic rows are left exactly as issued.
+-- Drafts are exempt: save_invoice_draft writes the header (type, rate, round-off)
+-- before invoice_recalc rewrites the totals in the same call, so a draft row is
+-- briefly inconsistent mid-statement. Every issued/cancelled row must satisfy both
+-- rules, and finalize_invoice recalculates immediately before issuing.
 alter table public.invoices drop constraint if exists invoices_totals_chk;
 alter table public.invoices add constraint invoices_totals_chk
-  check (taxable_value = subtotal + charges_total
-         and total = taxable_value + cgst + sgst + igst + round_off) not valid;
+  check (status = 'draft'
+         or (taxable_value = subtotal + charges_total
+             and total = taxable_value + cgst + sgst + igst + round_off)) not valid;
 alter table public.invoices drop constraint if exists invoices_tax_rule_chk;
 alter table public.invoices add constraint invoices_tax_rule_chk check (
-  (kind = 'nongst' and tax_mode = 'none' and gst_rate = 0)
+  status = 'draft'
+  or (kind = 'nongst' and tax_mode = 'none' and gst_rate = 0)
   or (kind = 'gst' and tax_mode = 'intra' and gst_rate in (5, 12, 18, 28) and igst = 0 and cgst = sgst)
   or (kind = 'gst' and tax_mode = 'inter' and gst_rate in (5, 12, 18, 28) and cgst = 0 and sgst = 0)
 ) not valid;
