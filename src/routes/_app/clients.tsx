@@ -1,4 +1,4 @@
-import { up } from "@/lib/text";
+import { up, upName, nameKey } from "@/lib/text";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -30,7 +30,9 @@ function Clients() {
     e.preventDefault();
     if (!edit) return;
     const { id, ...form } = edit;
-    const row = { ...form, state: form.state || null, gstin: form.gstin.trim().toUpperCase() || null };
+    const twin = clients.find((c) => c.id !== id && nameKey(c.name) === nameKey(form.name));
+    if (twin) { toast.error(`${up(twin.name)} already exists. Open the existing client instead of creating a duplicate.`); return; }
+    const row = { ...form, name: upName(form.name), state: form.state || null, gstin: form.gstin.trim().toUpperCase() || null };
     const res = id ? await supabase.from("clients").update(row).eq("id", id) : await supabase.from("clients").insert(row);
     if (res.error) { toast.error(errMsg(res.error)); return; }
     toast.success("Client saved");
@@ -86,7 +88,24 @@ function Clients() {
                   <Label className="capitalize">{f === "gstin" ? "GSTIN" : f}</Label>
                   {f === "state"
                     ? <StateSelect value={edit.state} onChange={(v) => setEdit({ ...edit, state: v })} />
-                    : <Input required={f === "name"} value={edit[f]} onChange={(e) => setEdit({ ...edit, [f]: e.target.value })} />}
+                    : <Input required={f === "name"} className={f === "name" ? "uppercase" : undefined} value={edit[f]} onChange={(e) => setEdit({ ...edit, [f]: e.target.value })} />}
+                  {f === "name" && (() => {
+                    const k = nameKey(edit.name);
+                    const twin = clients.find((c) => c.id !== edit.id && nameKey(c.name) === k);
+                    const like = k.length >= 2 ? clients.filter((c) => c.id !== edit.id && c !== twin && nameKey(c.name).includes(k)).slice(0, 5) : [];
+                    if (!twin && !like.length) return null;
+                    const open = (c: Client) => setEdit({ id: c.id, name: c.name, phone: c.phone ?? "", email: c.email ?? "", gstin: c.gstin ?? "", address: c.address ?? "", state: c.state ?? "", is_gst: c.is_gst, active: c.active });
+                    return (
+                      <div className="mt-1 space-y-1 text-xs">
+                        {twin && <p className="text-destructive">{up(twin.name)} already exists — it can't be added again.</p>}
+                        <div className="flex flex-wrap gap-1">
+                          {[...(twin ? [twin] : []), ...like].map((c) => (
+                            <button type="button" key={c.id} className="rounded-full border px-2 py-0.5 hover:bg-muted" onClick={() => open(c)}>Open {up(c.name)}</button>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               ))}
               <label className="flex items-center gap-2 text-sm"><Switch checked={edit.is_gst} onCheckedChange={(v) => setEdit({ ...edit, is_gst: v })} />Charge GST</label>

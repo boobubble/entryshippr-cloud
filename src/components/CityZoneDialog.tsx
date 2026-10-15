@@ -82,13 +82,13 @@ export function CityZoneDialog({ open, items, zones, onClose, onSaved, onSkip }:
             const c = choice[r.input] ?? { city: "", zone: "" };
             return (
               <div key={r.input} className="grid gap-2 rounded-lg border p-2 sm:grid-cols-[1fr_1fr_1fr] sm:items-center">
-                <div className="flex items-start gap-2 text-sm font-medium"><input type="checkbox" className="mt-1" aria-label={`Select ${r.input}`} checked={picked.has(r.input)} onChange={() => toggle(r.input)} /><div>{r.input}{r.status === "unmapped" && r.city_name && normCity(r.city_name) !== normCity(r.input) && <span className="block text-xs text-muted-foreground">= {r.city_name}</span>}</div></div>
+                <div className="flex items-start gap-2 text-sm font-medium uppercase"><input type="checkbox" className="mt-1" aria-label={`Select ${r.input}`} checked={picked.has(r.input)} onChange={() => toggle(r.input)} /><div>{r.input}{r.status === "unmapped" && r.city_name && normCity(r.city_name) !== normCity(r.input) && <span className="block text-xs text-muted-foreground">= {r.city_name}</span>}</div></div>
                 {r.status === "ambiguous" ? (
                   <select aria-label={`Which ${r.input}`} className={sel} value={c.city} onChange={(e) => set(r.input, { city: e.target.value })}>
                     <option value="">Which one?</option>
                     {(r.candidates ?? []).map((k) => <option key={k.id} value={k.id}>{up(k.name)}{k.district ? `, ${up(k.district)}` : ""}{k.state ? `, ${up(k.state)}` : " (state unknown)"}</option>)}
                   </select>
-                ) : r.city_id ? <div className="text-xs text-muted-foreground">{r.state ?? "State not set"}</div>
+                ) : r.city_id ? <div className="text-xs text-muted-foreground">{r.state ? up(r.state) : "State not set"}</div>
                   : <div className="text-xs text-destructive">{r.reason ?? "Can't be registered"}</div>}
                 <select aria-label={`Zone for ${r.input}`} className={sel} value={c.zone} disabled={!c.city} onChange={(e) => set(r.input, { zone: e.target.value })}>
                   <option value="">Choose zone…</option>

@@ -1,4 +1,5 @@
-import { up } from "@/lib/text";
+import { up, upName } from "@/lib/text";
+import { CityInput } from "@/components/Autocomplete";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -22,7 +23,7 @@ const NEW_ZONE = "__new";
 type City = { id: string; name: string; state: string | null; district: string | null; source: string };
 type Mapping = { city_id: string; zone_id: string; cities: { name: string; state: string | null; district: string | null } | null };
 const place = (c: { state: string | null; district?: string | null } | null | undefined) =>
-  [c?.district, c?.state].filter(Boolean).join(", ") || "—";
+  up([c?.district, c?.state].filter(Boolean).join(", ")) || "—";
 
 function CitiesPage() {
   const qc = useQueryClient();
@@ -164,14 +165,14 @@ function CitiesPage() {
     try {
       const zoneId = await ensureZone();
       if (adv && nc.state) {
-        const { data, error } = await supabase.rpc("add_city", { p_name: nc.name.trim(), p_state: nc.state, p_district: nc.district.trim() || null });
+        const { data, error } = await supabase.rpc("add_city", { p_name: upName(nc.name), p_state: nc.state, p_district: nc.district.trim() || null });
         if (error) throw error;
         const r = (data as { city_id: string; existed: boolean; name: string; state: string; district: string | null }[])[0];
         if (!r) throw new Error("City could not be added");
         await finishAdd(r.city_id, [r.name, r.district, r.state].filter(Boolean).join(", "), zoneId);
         return;
       }
-      const { data, error } = await supabase.rpc("register_cities", { p_names: [nc.name.trim()] });
+      const { data, error } = await supabase.rpc("register_cities", { p_names: [upName(nc.name)] });
       if (error) throw error;
       const r = (data as CityRes[])[0];
       if (!r) throw new Error("City could not be checked");
@@ -222,7 +223,7 @@ function CitiesPage() {
           <ul className="mt-3 flex flex-wrap gap-2">
             {review.data.unmapped.slice(0, 60).map((r) => (
               <li key={r.input} className="rounded-full border px-3 py-1 text-xs">
-                {r.input}{r.status === "ambiguous" && <span className="text-destructive"> · confirm state</span>}
+                {up(r.input)}{r.status === "ambiguous" && <span className="text-destructive"> · confirm state</span>}
                 <span className="text-muted-foreground"> · {review.data.counts.get(normCity(r.input)) ?? 0} shipments</span>
               </li>
             ))}
@@ -268,7 +269,7 @@ function CitiesPage() {
           <h2 className="mb-3 font-semibold">Add a city</h2>
           <form className="grid gap-2 sm:grid-cols-2" onSubmit={(e) => { e.preventDefault(); addCity(); }}>
             <label className="grid gap-1 text-sm">City name *
-              <Input placeholder="e.g. Nashik" value={nc.name} maxLength={80} required onChange={(e) => { setNc({ ...nc, name: e.target.value }); setAmb(null); }} />
+              <CityInput placeholder="e.g. NASHIK" value={nc.name} required onChange={(name) => { setNc({ ...nc, name }); setAmb(null); }} />
             </label>
             <label className="grid gap-1 text-sm">My zone *
               <select className={`${sel} w-full`} value={nc.zone} required onChange={(e) => setNc({ ...nc, zone: e.target.value })}>
