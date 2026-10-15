@@ -80,6 +80,26 @@ function Shipments() {
     if (error) { toast.error(errMsg(error)); return; }
     qc.invalidateQueries({ queryKey: ["shipments"] });
   }
+
+  const deletable = rows.filter((r) => !r.invoice_id);
+  const selRows = deletable.filter((r) => selected.has(r.id));
+  function toggle(id: string, on: boolean) {
+    setSelected((s) => { const n = new Set(s); on ? n.add(id) : n.delete(id); return n; });
+  }
+  function toggleAll(on: boolean) {
+    setSelected(on ? new Set(deletable.map((r) => r.id)) : new Set());
+  }
+  async function delSelected() {
+    if (!selRows.length) return;
+    if (!window.confirm(`Delete ${selRows.length} shipment${selRows.length > 1 ? "s" : ""}? This cannot be undone.`)) return;
+    setBusy(true);
+    const { error } = await supabase.from("shipments").delete().in("id", selRows.map((r) => r.id));
+    setBusy(false);
+    if (error) { toast.error(errMsg(error)); return; }
+    toast.success(`Deleted ${selRows.length} shipment${selRows.length > 1 ? "s" : ""}`);
+    setSelected(new Set());
+    qc.invalidateQueries({ queryKey: ["shipments"] });
+  }
   function exportXlsx() {
     const ws = XLSX.utils.json_to_sheet(rows.map((r) => ({ AWB: r.awb, Date: r.ship_date, Client: up(r.clients?.name), City: up(r.destination), Type: r.shipment_type ?? "", Service: r.service, "Weight (kg)": r.weight, Pieces: r.pieces, Amount: r.amount, Status: r.pricing_status === "needs_review" ? `Needs review: ${r.review_reason}` : "Priced", Billed: r.invoice_id ? "Yes" : "No" })));
     const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Shipments");
