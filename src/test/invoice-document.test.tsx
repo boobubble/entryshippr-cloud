@@ -48,3 +48,10 @@ describe("Customer invoice layout", () => {
     expect(doc.querySelectorAll("footer")).toHaveLength(1);
   });
 });
+import { invDate } from "@/components/InvoiceDocument";
+describe("invoice dates", () => {
+  it("formats as DD/MM/YY", () => {
+    expect(invDate("2026-10-15")).toBe("15/10/26");
+    expect(invDate("2026-10-01")).toBe("01/10/26");
+  });
+});
