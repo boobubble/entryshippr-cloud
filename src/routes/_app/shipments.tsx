@@ -164,7 +164,7 @@ function Shipments() {
               <tr key={r.id} className="border-t"><td className="p-3">{r.invoice_id ? null : <input type="checkbox" aria-label={`Select ${r.awb}`} checked={selected.has(r.id)} onChange={(e) => toggle(r.id, e.target.checked)} />}</td><td className="p-3 font-mono">{r.awb}</td><td className="p-3">{r.ship_date}</td><td className="p-3">{up(r.clients?.name)}</td><td className="p-3">{up(r.destination)}</td><td className="p-3">{r.service}</td><td className="p-3">{r.billing_weight != null && r.weight_unit ? `${+r.billing_weight} ${r.weight_unit}` : `${r.weight} kg`}{r.shipment_type ? ` · ${r.shipment_type}` : ""}</td><td className="p-3 text-right">{r.pricing_status === "needs_review" ? "—" : inr(r.amount)}</td><td className="p-3">{r.pricing_status === "needs_review" ? <span className="text-destructive">Needs review: {r.review_reason}</span> : r.invoice_id ? "Billed" : "Unbilled"}</td>
                 <td className="p-3"><Button size="sm" variant="ghost" onClick={() => del(r)}>Delete</Button></td></tr>
             ))}
-            {!rows.length && <tr><td colSpan={9} className="p-6 text-center text-muted-foreground">No shipments found.</td></tr>}
+            {!rows.length && <tr><td colSpan={10} className="p-6 text-center text-muted-foreground">No shipments found.</td></tr>}
           </tbody>
         </table>
       </div>
