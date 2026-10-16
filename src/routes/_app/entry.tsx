@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ChevronLeft, ChevronRight, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { supabase, inr } from "@/lib/supabase";
 import { useClients, useZones, errMsg } from "@/lib/hooks";
 import { normCity, registerCities, type CityRes } from "@/lib/cities";
@@ -11,7 +11,7 @@ import { up, upName } from "@/lib/text";
 import { CityZoneDialog } from "@/components/CityZoneDialog";
 import { appHead } from "@/components/PageHead";
 import { Button } from "@/components/ui/button";
-import { getSidebarCollapsed, setSidebarCollapsed, useSidebarCollapsed } from "@/lib/sidebar";
+import { getSidebarCollapsed, setSidebarCollapsed } from "@/lib/sidebar";
 
 export const Route = createFileRoute("/_app/entry")({
   head: appHead("Consignment entry", "Fast keyboard-driven manual consignment entry."),
@@ -74,7 +74,6 @@ function Entry() {
   const { data: clients = [] } = useClients();
   const { data: zones = [] } = useZones();
   const qc = useQueryClient();
-  const collapsed = useSidebarCollapsed();
   const [d, setD] = useState<Draft>({ awb: "", client_id: "", date: ymd(new Date()), city: "", service: "Standard", type: "NON-DOX", weight: "", charge: "auto", manual: "" });
   const [clientText, setClientText] = useState("");
   const [cityPicked, setCityPicked] = useState<{ name: string; state: string | null } | null>(null);
@@ -181,51 +180,50 @@ function Entry() {
   const label = "mb-1 block text-xs font-semibold uppercase tracking-wide text-muted-foreground";
   return (
     <div>
-      <div className="no-print mb-3 flex items-center justify-between gap-3">
-        <Button variant="outline" size="sm" className="hidden md:inline-flex" onClick={() => setSidebarCollapsed(!collapsed)}>
-          {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}{collapsed ? "Show menu" : "Hide menu"}
-        </Button>
+      <div className="no-print mb-3 flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-bold tracking-widest">CONSIGNMENT ENTRY</h1>
         <span className="text-xs text-muted-foreground">F2 or Enter in Charges = Save</span>
       </div>
 
-      <div className="mb-4 flex items-center justify-center gap-2">
-        <Button variant="outline" size="icon" className="h-12 w-12" aria-label="Previous day" onClick={() => setD({ ...d, date: shift(d.date, -1) })}><ChevronLeft /></Button>
-        <input type="date" aria-label="Entry date" className="h-12 rounded-md border-2 bg-background px-4 text-2xl font-bold" value={d.date}
-          onChange={(e) => e.target.value && setD({ ...d, date: e.target.value })} />
-        <Button variant="outline" size="icon" className="h-12 w-12" aria-label="Next day" onClick={() => setD({ ...d, date: shift(d.date, 1) })}><ChevronRight /></Button>
-      </div>
-
-      <form onSubmit={(e) => { e.preventDefault(); save(); }} className="mb-4 overflow-x-auto rounded-xl border bg-card p-3">
-        <div className="grid min-w-[1100px] grid-cols-[1.2fr_1.8fr_1.8fr_0.9fr_1fr_0.9fr_0.9fr_1.1fr_auto] items-end gap-2">
-          <div><label className={label} htmlFor="e-awb">AWB Number</label>
-            <input id="e-awb" ref={awbRef} className={field} autoComplete="off" maxLength={40} value={d.awb} onChange={(e) => setD({ ...d, awb: e.target.value })} /></div>
-          <div><label className={label} htmlFor="e-client">Client / Party</label>
+      <form onSubmit={(e) => { e.preventDefault(); save(); }} className="mb-4 space-y-3 rounded-xl border bg-card p-3">
+        <div className="grid grid-cols-1 items-end gap-2 sm:grid-cols-[auto_minmax(0,1fr)]">
+          <div><label className={label} htmlFor="e-date">Date</label>
+            <div className="flex items-center gap-1">
+              <Button type="button" variant="outline" size="icon" className="h-12 w-10 shrink-0" aria-label="Previous day" onClick={() => setD({ ...d, date: shift(d.date, -1) })}><ChevronLeft /></Button>
+              <input id="e-date" type="date" className="h-12 min-w-0 rounded-md border-2 bg-background px-3 text-lg font-bold" value={d.date}
+                onChange={(e) => e.target.value && setD({ ...d, date: e.target.value })} />
+              <Button type="button" variant="outline" size="icon" className="h-12 w-10 shrink-0" aria-label="Next day" onClick={() => setD({ ...d, date: shift(d.date, 1) })}><ChevronRight /></Button>
+            </div></div>
+          <div className="min-w-0 sm:max-w-xl"><label className={label} htmlFor="e-client">Client / Party</label>
             <Combo id="e-client" value={clientText} picked={!!d.client_id} options={clientOpts} placeholder="Type to search"
               onText={(v) => { setClientText(v); setD({ ...d, client_id: "" }); }}
               onPick={async (o) => {
                 setClientText(o.label); const next = { ...d, client_id: o.key }; setD(next);
                 if (!d.awb.trim()) { const s = await suggestFor(o.key); if (s) setD((p) => (p.awb ? p : { ...p, awb: s })); }
               }} /></div>
-          <div><label className={label} htmlFor="e-city">Destination City</label>
+        </div>
+        <div className="grid grid-cols-2 items-end gap-2 sm:grid-cols-4 xl:grid-cols-[1.3fr_1.8fr_0.9fr_1fr_0.9fr_0.9fr_1.1fr_auto]">
+          <div className="min-w-0"><label className={label} htmlFor="e-awb">AWB Number</label>
+            <input id="e-awb" ref={awbRef} className={field} autoComplete="off" maxLength={40} value={d.awb} onChange={(e) => setD({ ...d, awb: e.target.value })} /></div>
+          <div className="min-w-0"><label className={label} htmlFor="e-city">Destination City</label>
             <Combo id="e-city" inputRef={cityRef} value={d.city} picked={!!cityPicked} options={cityOpts} placeholder="e.g. MUM"
               onText={(v) => { setD({ ...d, city: v }); setCityPicked(null); }}
               onPick={(o) => { const c = cityOpts.find((x) => x.key === o.key)!; setD({ ...d, city: up(c.name) }); setCityPicked({ name: c.name, state: c.state }); }} /></div>
-          <div><label className={label} htmlFor="e-type">Type</label>
+          <div className="min-w-0"><label className={label} htmlFor="e-type">Type</label>
             <select id="e-type" className={field} value={d.type} onChange={(e) => setD({ ...d, type: e.target.value as Draft["type"] })}><option>DOX</option><option>NON-DOX</option></select></div>
-          <div><label className={label} htmlFor="e-svc">Service Type</label>
+          <div className="min-w-0"><label className={label} htmlFor="e-svc">Service</label>
             <select id="e-svc" className={field} value={d.service} onChange={(e) => setD({ ...d, service: e.target.value as Draft["service"] })}><option>Standard</option><option>Fast</option></select></div>
-          <div><label className={label} htmlFor="e-wt">Wt. (Kg)</label>
+          <div className="min-w-0"><label className={label} htmlFor="e-wt">Wt. (Kg)</label>
             <input id="e-wt" type="number" step="0.001" min="0.001" className={field} value={d.weight} onChange={(e) => setD({ ...d, weight: e.target.value })} /></div>
-          <div><label className={label} htmlFor="e-mode">Charge</label>
+          <div className="min-w-0"><label className={label} htmlFor="e-mode">Charge</label>
             <select id="e-mode" className={field} value={d.charge} onChange={(e) => setD({ ...d, charge: e.target.value as Draft["charge"], manual: "" })}><option value="auto">Auto</option><option value="manual">Manual</option></select></div>
-          <div><label className={label} htmlFor="e-chg">Charges (₹)</label>
+          <div className="min-w-0"><label className={label} htmlFor="e-chg">Charges (₹)</label>
             {d.charge === "manual"
               ? <input id="e-chg" type="number" step="0.01" min="0.01" className={field} value={d.manual} placeholder="Amount" onChange={(e) => setD({ ...d, manual: e.target.value })}
                   onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); if (!e.repeat) save(); } }} />
               : <input id="e-chg" readOnly className={`${field} bg-muted`} value={lastCharge ? `Last: ${lastCharge}` : "Auto"} title="Worked out from the city's zone and the client's rate card"
                   onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); if (!e.repeat) save(); } }} />}</div>
-          <Button type="submit" disabled={busy} className="h-12 px-8 text-lg font-bold">{busy ? "Saving…" : "Save"}</Button>
+          <Button type="submit" disabled={busy} className="col-span-2 h-12 px-6 text-lg font-bold sm:col-span-4 xl:col-span-1">{busy ? "Saving…" : "Add Shipment"}</Button>
         </div>
       </form>
 
