@@ -29,7 +29,7 @@ export function checkSeries(f: Form): string | null {
 
 export const previewAwb = (f: Form) => f.prefix.trim().toUpperCase() + f.start.trim().replace(/^0+(?=\d)/, "").padStart(Math.max(1, Number(f.digits) || 1), "0");
 
-function Row({ title, series, clientId, onDone }: { title: string; series?: Series; clientId: string | null; onDone: () => void }) {
+function Row({ title, series, clientId, onDone }: { title: string; series?: Series | undefined; clientId: string | null; onDone: () => void }) {
   const [f, setF] = useState<Form>(toForm(series));
   const [busy, setBusy] = useState(false);
   async function save() {
