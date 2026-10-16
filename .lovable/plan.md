@@ -1,58 +1,38 @@
-# Final Invoice Editor (draft step before issuing)
+# Service options: DOX Standard/Fast, NON-DOX Surface/Air/Fast
 
-## What exists today
-- Invoices are created in one step by the `create_invoice` RPC: it takes all unbilled shipments for a client and date range, works out GST (9% + 9% same state, 18% IGST otherwise), takes the next number from `invoice_series` and links the shipments. The invoice is `issued` straight away.
-- `invoices` stores only subtotal, cgst, sgst, igst and total. There is no draft status, no line table, no charges, no round-off and no tax-rate fields.
-- Invoice lines are read live from `shipments` (weight and amount). So editing a line on the invoice would change the shipment itself, which the brief does not allow.
-- The invoice type (GST or Non-GST) comes from the client's setting and cannot be overridden. The two numbering series (GST and BOS) are already separate for each financial year.
-- `cancel_invoice` already exists for cancelling. There is no reissue link.
-- Users cannot write to `invoices` or `invoice_series` directly; all writes go through the database functions. This stays the same.
+Review only. No SQL is run and no code is changed until you approve.
 
-## Approach
-All totals are calculated **in the database**. The editor shows a live preview using the same formula, and the database recalculates and checks every figure on save and on finalize.
+## What I found
 
-```text
-Select shipments -> Create draft (no number used yet) -> Edit lines, charges, taxes
-  -> Save draft / Preview -> Finalize (number assigned, everything locked) -> Print / PDF
-Issued invoice -> Cancel (reason kept) -> "Reissue as new draft" (copies lines and links to the old invoice)
-```
+- The database only accepts **Standard** or **Fast**. This applies to price-list rows and to all DOX/NON-DOX shipments.
+- Pricing matches the service exactly. A NON-DOX Air shipment only uses NON-DOX Air rates. If there's no Air price list, it becomes Needs Review at ₹0. Prices never borrow from another service, so Needs Review keeps working without changes.
+- Excel import currently turns "Air", "Express" or "Priority" into **Fast** and everything else into **Standard**. That is the silent mapping to remove.
+- The invoice, the Shipments list and the billing export show the stored service name, so the new names appear there automatically.
 
-### Calculation (rounded to 2 decimal places at each step)
-1. Line subtotal = sum of the line amounts after edits
-2. Each charge: a fixed ₹ amount, or a % of the **line subtotal** (the base is fixed and shown on screen)
-3. Taxable value = line subtotal + all charges
-4. GST invoice: CGST and SGST at rate/2 each when the seller's and client's states match, otherwise IGST at the full rate (default 18%, can be changed: 0, 5, 12, 18 or 28). Non-GST invoice: no tax.
-5. Round-off: optional, between -₹1 and +₹1 (a button can work it out automatically)
-6. Grand total = taxable value + taxes + round-off
+## Decision needed: existing NON-DOX "Standard" data
 
-## Database changes (new file `supabase/migration_2026_10_15_invoice_editor.sql`, for you to review; I won't run it)
-- `invoice_status` enum: add a `draft` value.
-- `invoices`: new columns `charges_total`, `taxable_value`, `gst_rate`, `tax_mode` (`intra`, `inter` or `none`), `round_off`, `notes`, `reissue_of` (link to the cancelled invoice). `fy`, `seq` and `invoice_no` can be empty while the invoice is a draft. Existing invoices are backfilled with `taxable_value = subtotal` and `gst_rate = 18`.
-- New table `invoice_lines` (owner, invoice, shipment, ship_date, awb, receiver, destination, service, weight, rate, amount, plus the original weight and amount for the audit trail). It stores a copy of each shipment, so shipments and rate cards are never changed.
-- New table `invoice_charges` (owner, invoice, label, mode `fixed` or `percent`, value, calculated amount, sort order).
-- Both tables are read-only for signed-in users, with seller-only access rules and grants. All writes go through the functions below.
-- A guard trigger stops any change to lines, charges or the invoice header once the status is not `draft`.
-- Shipments are reserved while a draft holds them (new `draft_invoice_id` field) so two drafts can't take the same shipment. They link to the invoice only when it is finalized.
-- New functions (seller-only, each rechecks every total):
-  - `create_invoice_draft(client, from, to, shipment_ids[] default null, kind default by client)`
-  - `save_invoice_draft(id, header jsonb, lines jsonb, charges jsonb)`: validates the data, recalculates the totals and blocks amounts at or below ₹0
-  - `finalize_invoice(id, manual_no text default null)`: automatic numbering uses the series. A manual number must be unique within the seller's type and financial year and must not reuse a number the series has already given out.
-  - `discard_invoice_draft(id)`
-  - `reissue_invoice(cancelled_id)`: creates a new draft linked to the cancelled invoice
-- The existing `create_invoice` stays as it is, so nothing breaks before the new screens go live.
-- A matching `_tests.sql` file (rolled back at the end): seller isolation, editing blocked after finalize, duplicate manual numbers rejected, shipments and rate cards unchanged, totals recalculated on the server.
+NON-DOX Standard won't be a valid choice anymore. Existing records:
 
-## Frontend
-- "New invoice" now creates a **draft** and opens the editor, a new page at `/invoices/$id/edit`.
-- Editor sections: Header (date, billing period, GST or Non-GST, number set automatically or typed in), Lines table (weight, rate and amount can be edited, with the original values shown), Charges (presets: Fuel Surcharge, FOV, Packing, Pickup, Handling, Delivery, Extra Charges, or a custom name; fixed ₹ or %), Tax (rate and same-state/other-state shown), Round-off, a live Totals panel, and Save Draft / Preview / Finalize / Discard buttons.
-- The invoice list shows Draft, Issued and Cancelled badges. Cancelled invoices get a "Reissue" button.
-- The shared invoice layout reads from `invoice_lines` and `invoice_charges` and shows charges, taxable value, taxes, round-off and grand total, so the preview and the PDF always match. Old invoices that have no lines still show their shipments, as they do today.
-- Print / Save PDF is only offered for issued invoices.
+- **Option A (recommended): keep as old data.** The database still accepts NON-DOX Standard on records that already exist, but nothing new can use it. Nothing is renamed and no invoice changes. Old NON-DOX Standard price lists stay readable, and you re-enter them as Surface or Air yourself.
+- **Option B: rename NON-DOX Standard to Surface.** This applies only to price lists and to shipments that aren't on any invoice. Invoiced and draft shipments stay as they are because they're locked. This only works if every old NON-DOX Standard really was Surface. Imported "Air" rows were saved as Fast, so they can't be told apart now.
 
-## Order of work
-1. Write the migration and test SQL for you to review (no database changes).
-2. After you run them on DEV, build the editor, the list changes and the layout updates, then run all the tests.
+NON-DOX Fast stays exactly as it is under both options.
 
-## Questions to confirm
-- Default % base = line subtotal. Should any charge (for example FOV) use a different base?
-- Should manual invoice numbers keep the `PREFIX/FY/NNNN` format, or can they be any text?
+## Database update (DEV only, one new file)
+
+`supabase/migration_2026_10_16_service_matrix.sql`
+- `rate_slabs` service check: change it to the allowed pairs (DOX: Standard/Fast; NON-DOX: Surface/Air/Fast). Option A also keeps existing NON-DOX Standard rows valid.
+- `save_rate_card()`: same allowed pairs, so no new NON-DOX Standard price list can be saved.
+- `shipments_typed_service_chk`: same allowed pairs. Option A allows old NON-DOX Standard only on existing rows, using a trigger that blocks new inserts or changes *to* it.
+- `copy_rate_cards`, `shipment_rate`, `shipments_apply_rate`, invoices, numbering, GST, locks and audit stay unchanged.
+- A matching rollback-only test file, `..._service_matrix_tests.sql`. It checks that Air never prices from Surface or Fast, missing Air gives Needs Review, DOX Standard/Fast pricing is unchanged, and existing shipments and invoices are untouched.
+
+## App changes
+
+- `src/lib/rates.ts`: service list for each type; import name matching ("air" goes to Air, "surface"/"ground" to Surface, "fast"/"express"/"priority" to Fast). An unrecognised NON-DOX service is no longer guessed: the row becomes Needs Review.
+- `src/routes/_app/entry.tsx`: the Service dropdown follows the Type (DOX: Standard/Fast; NON-DOX: Surface/Air/Fast). Changing the type resets the service if it isn't valid for that type.
+- `src/routes/_app/rate-cards.tsx`: the price-list sections follow the selected type.
+- `src/routes/_app/import.tsx`: uses the new matching and service type.
+- `src/test/rates.test.ts`: tests for the matrix, Air never using Surface or Fast, and missing Air giving Needs Review.
+
+No changes to invoices, the export layout, numbering, GST or production. Nothing is published.
