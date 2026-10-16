@@ -27,7 +27,7 @@ const nav = [
   { to: "/settings", label: "Business settings", icon: Settings },
 ] as const;
 
-function SideContent({ isAdmin, label, onLogout }: { isAdmin?: boolean; label: string; onLogout: () => void }) {
+function SideContent({ isAdmin, label, onLogout }: { isAdmin?: boolean | undefined; label: string; onLogout: () => void }) {
   const link = "flex items-center gap-2 rounded-md px-2 py-2 text-sm hover:bg-sidebar-accent";
   return (
     <>
