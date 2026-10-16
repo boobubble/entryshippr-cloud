@@ -19,8 +19,8 @@ export const Route = createFileRoute("/_app/entry")({
 });
 
 type Opt = { key: string; label: string; sub?: string | undefined };
-type Saved = { id: string; awb: string; ship_date: string; destination: string | null; service: string; weight: number; amount: number; pricing_status?: string; review_reason?: string | null; shipment_type?: string | null; clients: { name: string } | null };
-type Draft = { awb: string; client_id: string; date: string; city: string; service: "Standard" | "Fast"; type: "DOX" | "NON-DOX"; weight: string };
+type Saved = { id: string; awb: string; ship_date: string; destination: string | null; service: string; weight: number; amount: number; pricing_status?: string; review_reason?: string | null; shipment_type?: string | null; charge_mode?: string | null; clients: { name: string } | null };
+type Draft = { awb: string; client_id: string; date: string; city: string; service: "Standard" | "Fast"; type: "DOX" | "NON-DOX"; weight: string; charge: "auto" | "manual"; manual: string };
 
 const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const shift = (s: string, n: number) => { const d = new Date(`${s}T00:00:00`); d.setDate(d.getDate() + n); return ymd(d); };
@@ -75,7 +75,7 @@ function Entry() {
   const { data: zones = [] } = useZones();
   const qc = useQueryClient();
   const collapsed = useSidebarCollapsed();
-  const [d, setD] = useState<Draft>({ awb: "", client_id: "", date: ymd(new Date()), city: "", service: "Standard", type: "NON-DOX", weight: "" });
+  const [d, setD] = useState<Draft>({ awb: "", client_id: "", date: ymd(new Date()), city: "", service: "Standard", type: "NON-DOX", weight: "", charge: "auto", manual: "" });
   const [clientText, setClientText] = useState("");
   const [cityPicked, setCityPicked] = useState<{ name: string; state: string | null } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -114,16 +114,22 @@ function Entry() {
   const { data: rows = [] } = useQuery({
     queryKey: ["entry_rows", d.date],
     queryFn: async () => {
-      const { data, error } = await supabase.from("shipments").select("id, awb, ship_date, destination, service, weight, amount, pricing_status, review_reason, shipment_type, clients(name)")
+      const { data, error } = await supabase.from("shipments").select("id, awb, ship_date, destination, service, weight, amount, pricing_status, review_reason, shipment_type, charge_mode, clients(name)")
         .eq("ship_date", d.date).order("created_at", { ascending: false }).limit(300);
       if (error) throw error;
       return data as unknown as Saved[];
     },
   });
 
-  async function suggestFor(clientId: string) {
-    const { data } = await supabase.from("shipments").select("awb").eq("client_id", clientId).order("created_at", { ascending: false }).limit(1).maybeSingle();
-    return nextAwb(data?.awb);
+  /** Suggest from the seller's AWB series (client series first, then default); with no series, last AWB + 1. */
+  async function suggestFor(clientId: string, last?: string) {
+    const { data, error } = await supabase.rpc("next_awb", { p_client_id: clientId });
+    if (error) { toast.error(errMsg(error)); return ""; }
+    const hit = (data as { awb: string }[] | null)?.[0]?.awb;
+    if (hit) return hit;
+    if (last) return nextAwb(last);
+    const { data: prev } = await supabase.from("shipments").select("awb").eq("client_id", clientId).order("created_at", { ascending: false }).limit(1).maybeSingle();
+    return nextAwb(prev?.awb);
   }
 
   async function insert(x: Draft) {
@@ -132,11 +138,13 @@ function Entry() {
     const { data, error } = await supabase.from("shipments").insert({
       awb: x.awb.trim(), client_id: x.client_id, ship_date: x.date, destination: upName(x.city), service: x.service, pieces: 1,
       shipment_type: x.type, weight_f: g, weight: x.type === "DOX" ? billedWeight("DOX", g) / 1000 : billedWeight("NON-DOX", w), amount: 0,
+      charge_mode: x.charge, manual_amount: x.charge === "manual" ? Number(x.manual) : null,
     }).select("awb, amount, pricing_status, review_reason").single();
     if (error) { toast.error(error.code === "23505" ? `AWB ${x.awb} already exists` : errMsg(error)); awbRef.current?.focus(); return; }
     if (data.pricing_status === "needs_review") { toast.warning(`Saved as Needs Review: ${data.review_reason}`); setLastCharge("Needs review"); }
     else { toast.success(`${data.awb} saved · ${inr(data.amount)}`); setLastCharge(inr(data.amount)); }
-    setD({ ...x, awb: nextAwb(data.awb), city: "", weight: "" });
+    setD({ ...x, awb: "", city: "", weight: "", charge: "auto", manual: "" });
+    suggestFor(x.client_id, data.awb).then((s) => s && setD((p) => (p.awb ? p : { ...p, awb: s })));
     setCityPicked(null);
     qc.invalidateQueries({ queryKey: ["entry_rows"] });
     qc.invalidateQueries({ queryKey: ["shipments"] });
@@ -149,6 +157,7 @@ function Entry() {
     if (!d.client_id) { toast.error("Choose a client from the list"); return; }
     if (!cityPicked) { toast.error("Choose the city from the suggestions"); cityRef.current?.focus(); return; }
     if (!(+d.weight > 0)) { toast.error("Enter a weight above 0"); return; }
+    if (d.charge === "manual" && !(+d.manual > 0 && +d.manual <= 10000000)) { toast.error("Enter a manual charge above ₹0"); return; }
     lock.current = true; setBusy(true);
     try {
       const res = (await registerCities([d.city])).values().next().value as CityRes | undefined;
@@ -188,7 +197,7 @@ function Entry() {
       </div>
 
       <form onSubmit={(e) => { e.preventDefault(); save(); }} className="mb-4 overflow-x-auto rounded-xl border bg-card p-3">
-        <div className="grid min-w-[1100px] grid-cols-[1.2fr_1.8fr_1.8fr_0.9fr_1fr_0.9fr_1fr_auto] items-end gap-2">
+        <div className="grid min-w-[1100px] grid-cols-[1.2fr_1.8fr_1.8fr_0.9fr_1fr_0.9fr_0.9fr_1.1fr_auto] items-end gap-2">
           <div><label className={label} htmlFor="e-awb">AWB Number</label>
             <input id="e-awb" ref={awbRef} className={field} autoComplete="off" maxLength={40} value={d.awb} onChange={(e) => setD({ ...d, awb: e.target.value })} /></div>
           <div><label className={label} htmlFor="e-client">Client / Party</label>
@@ -208,9 +217,14 @@ function Entry() {
             <select id="e-svc" className={field} value={d.service} onChange={(e) => setD({ ...d, service: e.target.value as Draft["service"] })}><option>Standard</option><option>Fast</option></select></div>
           <div><label className={label} htmlFor="e-wt">Wt. (Kg)</label>
             <input id="e-wt" type="number" step="0.001" min="0.001" className={field} value={d.weight} onChange={(e) => setD({ ...d, weight: e.target.value })} /></div>
+          <div><label className={label} htmlFor="e-mode">Charge</label>
+            <select id="e-mode" className={field} value={d.charge} onChange={(e) => setD({ ...d, charge: e.target.value as Draft["charge"], manual: "" })}><option value="auto">Auto</option><option value="manual">Manual</option></select></div>
           <div><label className={label} htmlFor="e-chg">Charges (₹)</label>
-            <input id="e-chg" readOnly className={`${field} bg-muted`} value={lastCharge ? `Last: ${lastCharge}` : "Auto"} title="Worked out from the city's zone and the client's rate card"
-              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); if (!e.repeat) save(); } }} /></div>
+            {d.charge === "manual"
+              ? <input id="e-chg" type="number" step="0.01" min="0.01" className={field} value={d.manual} placeholder="Amount" onChange={(e) => setD({ ...d, manual: e.target.value })}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); if (!e.repeat) save(); } }} />
+              : <input id="e-chg" readOnly className={`${field} bg-muted`} value={lastCharge ? `Last: ${lastCharge}` : "Auto"} title="Worked out from the city's zone and the client's rate card"
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); if (!e.repeat) save(); } }} />}</div>
           <Button type="submit" disabled={busy} className="h-12 px-8 text-lg font-bold">{busy ? "Saving…" : "Save"}</Button>
         </div>
       </form>
@@ -221,7 +235,7 @@ function Entry() {
           <tbody>
             {rows.map((r, i) => (
               <tr key={r.id} className="border-t"><td className="p-2">{rows.length - i}</td><td className="p-2 font-mono">{r.awb}</td><td className="p-2">{up(r.clients?.name)}</td><td className="p-2">{up(r.destination)}</td><td className="p-2">{r.shipment_type ?? ""}</td><td className="p-2">{r.service}</td><td className="p-2">{+Number(r.weight).toFixed(3)}</td>
-                <td className="p-2 text-right">{r.pricing_status === "needs_review" ? <span className="text-destructive">Needs review</span> : inr(r.amount)}</td></tr>
+                <td className="p-2 text-right">{r.pricing_status === "needs_review" ? <span className="text-destructive">Needs review</span> : <>{inr(r.amount)}{r.charge_mode === "manual" && <span className="ml-1 rounded bg-muted px-1 text-xs">Manual</span>}</>}</td></tr>
             ))}
             {!rows.length && <tr><td colSpan={8} className="p-6 text-center text-muted-foreground">No consignments on this date yet.</td></tr>}
           </tbody>
