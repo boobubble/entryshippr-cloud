@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { InvoiceSeries } from "@/components/InvoiceSeries";
+import { AwbSeries } from "@/components/AwbSeries";
 import { StateSelect } from "@/components/StateSelect";
 
 export const Route = createFileRoute("/_app/settings")({
@@ -48,6 +49,7 @@ function Settings() {
         <Button className="sm:col-span-2" disabled={!data?.profile}>Save</Button>
       </form>
       <InvoiceSeries />
+      <AwbSeries />
     </div>
   );
 }
