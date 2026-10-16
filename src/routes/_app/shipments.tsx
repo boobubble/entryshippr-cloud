@@ -1,19 +1,14 @@
-import { up, upName } from "@/lib/text";
-import { CityInput, ClientInput } from "@/components/Autocomplete";
-import { createFileRoute } from "@tanstack/react-router";
+import { up } from "@/lib/text";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import { supabase, inr } from "@/lib/supabase";
-import { useClients, useZones, errMsg } from "@/lib/hooks";
-import { registerCities, type CityRes } from "@/lib/cities";
-import { CityZoneDialog } from "@/components/CityZoneDialog";
-import { billedWeight } from "@/lib/rates";
+import { useClients, errMsg } from "@/lib/hooks";
 import { PageHead, appHead } from "@/components/PageHead";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 
 export const Route = createFileRoute("/_app/shipments")({
   head: appHead("Shipments", "Search, add and manage courier shipments."),
@@ -21,16 +16,12 @@ export const Route = createFileRoute("/_app/shipments")({
 });
 
 type Row = { id: string; awb: string; ship_date: string; destination: string | null; service: string; weight: number; pieces: number; amount: number; invoice_id: string | null; client_id: string; clients: { name: string; address: string | null; phone: string | null; email: string | null; state: string | null } | null; rate_zone?: string | null; pricing_status?: string; review_reason?: string | null; shipment_type?: string | null; billing_weight?: number | null; weight_unit?: string | null };
-type Form = { awb: string; client_id: string; ship_date: string; destination: string; service: "Standard" | "Fast"; type: "DOX" | "NON-DOX"; weight: string; pieces: string };
 
 function Shipments() {
   const { data: clients = [] } = useClients();
-  const { data: zones = [] } = useZones();
   const qc = useQueryClient();
   const today = new Date().toISOString().slice(0, 10);
   const [filter, setFilter] = useState({ q: "", client: "", from: "", to: "", review: false });
-  const [f, setF] = useState<Form>({ awb: "", client_id: "", ship_date: today, destination: "", service: "Standard", type: "NON-DOX", weight: "", pieces: "1" });
-  const [pending, setPending] = useState<{ form: Form; city: CityRes } | null>(null);
   const [busy, setBusy] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
@@ -49,31 +40,6 @@ function Shipments() {
     },
   });
 
-  async function insert(form: Form) {
-    const w = +form.weight;
-    const { data, error } = await supabase.from("shipments").insert({
-      awb: form.awb.trim(), client_id: form.client_id, ship_date: form.ship_date, destination: upName(form.destination),
-      service: form.service, pieces: +form.pieces || 1, shipment_type: form.type, weight_f: w,
-      weight: form.type === "DOX" ? billedWeight("DOX", w) / 1000 : billedWeight("NON-DOX", w), amount: 0, // database prices it
-    }).select("amount, pricing_status, review_reason").single();
-    if (error) { toast.error(error.code === "23505" ? "This AWB already exists" : errMsg(error)); return; }
-    if (data.pricing_status === "needs_review") toast.warning(`Saved as Needs Review: ${data.review_reason}`);
-    else toast.success(`Shipment added · ${inr(data.amount)}`);
-    setF({ ...form, awb: "", destination: "", weight: "" });
-    qc.invalidateQueries({ queryKey: ["shipments"] });
-  }
-
-  async function add(e: React.FormEvent) {
-    e.preventDefault();
-    if (!(+f.weight > 0)) { toast.error("Enter a weight above 0"); return; }
-    setBusy(true);
-    try {
-      const res = (await registerCities([f.destination])).values().next().value as CityRes | undefined;
-      if (!res || res.status === "invalid") { toast.error(res?.reason ?? "Enter a valid city"); return; }
-      if (res.status === "ambiguous" || (res.status === "unmapped" && res.city_id)) { setPending({ form: f, city: res }); return; }
-      await insert(f);
-    } catch (err) { toast.error(errMsg(err)); } finally { setBusy(false); }
-  }
   async function del(r: Row) {
     if (r.invoice_id) { toast.error("Already invoiced — delete the invoice first."); return; }
     const { error } = await supabase.from("shipments").delete().eq("id", r.id);
@@ -128,24 +94,10 @@ function Shipments() {
   return (
     <div>
       <PageHead title="Shipments"><div className="flex gap-2"><Button variant="outline" onClick={exportXlsx} disabled={!rows.length}>Export Excel</Button><Button onClick={exportBilling} disabled={!rows.length}>Billing export</Button></div></PageHead>
-      <form onSubmit={add} className="mb-6 grid gap-3 rounded-xl border bg-card p-4 md:grid-cols-8 md:items-end">
-        <div><Label>AWB</Label><Input required value={f.awb} onChange={(e) => setF({ ...f, awb: e.target.value })} /></div>
-        <div className="md:col-span-2"><Label>Client</Label>
-          <ClientInput required clients={clients.filter((c) => c.active)} value={f.client_id} onChange={(client_id) => setF({ ...f, client_id })} /></div>
-        <div><Label>Date</Label><Input type="date" required value={f.ship_date} onChange={(e) => setF({ ...f, ship_date: e.target.value })} /></div>
-        <div><Label>City</Label><CityInput required value={f.destination} onChange={(destination) => setF({ ...f, destination })} /></div>
-        <div><Label>Type</Label>
-          <select className="h-9 w-full rounded-md border bg-background px-2 text-sm" value={f.type} onChange={(e) => setF({ ...f, type: e.target.value as Form["type"] })}>
-            <option value="DOX">DOX (g)</option><option value="NON-DOX">NON-DOX (kg)</option>
-          </select></div>
-        <div><Label>Service</Label>
-          <select className="h-9 w-full rounded-md border bg-background px-2 text-sm" value={f.service} onChange={(e) => setF({ ...f, service: e.target.value as Form["service"] })}>
-            <option>Standard</option><option>Fast</option>
-          </select></div>
-        <div><Label>Weight {f.type === "DOX" ? "g" : "kg"}</Label><Input type="number" step="0.001" min="0.001" required value={f.weight} onChange={(e) => setF({ ...f, weight: e.target.value })} /></div>
-        <p className="text-xs text-muted-foreground md:col-span-6">The price is worked out from the city's zone and your rate card, exactly like Excel import. If something is missing, the shipment is saved as Needs Review and is never charged ₹0.</p>
-        <Button className="md:col-span-2" disabled={busy}>{busy ? "Checking…" : "Add shipment"}</Button>
-      </form>
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-card p-4">
+        <p className="text-sm text-muted-foreground">Add shipments one by one on the Consignment Entry screen (AWB suggestions, Auto/Manual charges, keyboard entry).</p>
+        <Button asChild><Link to="/entry">Add shipment</Link></Button>
+      </div>
       <div className="mb-3 flex flex-wrap gap-2">
         <Input placeholder="Search AWB" className="w-44" value={filter.q} onChange={(e) => setFilter({ ...filter, q: e.target.value })} />
         <select className="h-9 rounded-md border bg-background px-2 text-sm" value={filter.client} onChange={(e) => setFilter({ ...filter, client: e.target.value })}>
@@ -168,9 +120,6 @@ function Shipments() {
           </tbody>
         </table>
       </div>
-      <CityZoneDialog open={!!pending} items={pending ? [pending.city] : []} zones={zones}
-        onClose={() => { const p = pending; setPending(null); if (p) insert(p.form); }}
-        onSaved={() => { const p = pending; setPending(null); qc.invalidateQueries({ queryKey: ["zones"] }); if (p) insert(p.form); }} />
     </div>
   );
 }

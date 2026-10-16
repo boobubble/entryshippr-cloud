@@ -2,7 +2,7 @@ import { createFileRoute, Outlet, redirect, Link, useNavigate, useRouterState } 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useProfile, accessState } from "@/lib/hooks";
-import { LayoutDashboard, Users, Gauge, Truck, FileSpreadsheet, Receipt, CreditCard, Settings, Shield, LogOut, MapPin, Menu, X } from "lucide-react";
+import { LayoutDashboard, Users, Gauge, Truck, FileSpreadsheet, Receipt, CreditCard, Settings, Shield, LogOut, MapPin, Menu, X, Keyboard } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { setSidebarCollapsed, useSidebarCollapsed } from "@/lib/sidebar";
 
@@ -17,6 +17,7 @@ export const Route = createFileRoute("/_app")({
 
 const nav = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { to: "/entry", label: "Consignment entry", icon: Keyboard },
   { to: "/import", label: "Excel import", icon: FileSpreadsheet },
   { to: "/shipments", label: "Shipments", icon: Truck },
   { to: "/clients", label: "Clients", icon: Users },
