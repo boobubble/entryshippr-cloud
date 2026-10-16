@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ChevronLeft, ChevronRight, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { supabase, inr } from "@/lib/supabase";
 import { useClients, useZones, errMsg } from "@/lib/hooks";
 import { normCity, registerCities, type CityRes } from "@/lib/cities";
@@ -11,7 +11,7 @@ import { up, upName } from "@/lib/text";
 import { CityZoneDialog } from "@/components/CityZoneDialog";
 import { appHead } from "@/components/PageHead";
 import { Button } from "@/components/ui/button";
-import { getSidebarCollapsed, setSidebarCollapsed, useSidebarCollapsed } from "@/lib/sidebar";
+import { getSidebarCollapsed, setSidebarCollapsed } from "@/lib/sidebar";
 
 export const Route = createFileRoute("/_app/entry")({
   head: appHead("Consignment entry", "Fast keyboard-driven manual consignment entry."),
@@ -74,7 +74,6 @@ function Entry() {
   const { data: clients = [] } = useClients();
   const { data: zones = [] } = useZones();
   const qc = useQueryClient();
-  const collapsed = useSidebarCollapsed();
   const [d, setD] = useState<Draft>({ awb: "", client_id: "", date: ymd(new Date()), city: "", service: "Standard", type: "NON-DOX", weight: "", charge: "auto", manual: "" });
   const [clientText, setClientText] = useState("");
   const [cityPicked, setCityPicked] = useState<{ name: string; state: string | null } | null>(null);
