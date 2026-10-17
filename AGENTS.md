@@ -15,7 +15,8 @@
 
 - Secret-backed gateway helpers stay in billing.server.ts and are dynamically imported only inside server handlers — prevents privileged helpers entering the client graph.
 - Manual proof completion verifies immutable stored bytes server-side before calling its service-only RPC; profile triggers audit every entitlement change, while reason-bearing review events remain separate — blocks unverified completion and records legacy operations.
-- Payment proofs use a dedicated byte-container validator on both upload sides, without changing shared blog validation; it rejects malformed containers but does not claim full pixel decoding.
+- Payment proofs use dedicated strict still-image preflight on both upload sides and server-only Photon WASM pixel decoding before submission and completion; output limits precede decode and original evidence bytes are never re-encoded, leaving shared blog validation unchanged.
+- Payment submission orchestration lives in a dependency-injected module used by the server handler and tests; provider diagnostics use allowlisted categories only, never arbitrary bodies, credentials, signed URLs or codec panic messages.
 - Payment list queries use paymentRows to propagate categorized failures instead of converting them into empty results — preserves truthful history states.
 - Blog stores allowlisted structured JSON validated in JS and PostgreSQL; private featured images are delivered only after live published-state checks with no-store — prevents stored XSS and draft leakage.
 - Public blog queries use publishable-key RLS reads; missing schema yields unavailable states, never seeded content — permits review-only setup without invented articles.

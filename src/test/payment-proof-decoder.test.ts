@@ -14,14 +14,14 @@ describe('Actual WASM pixel decode and pre-allocation limits', () => {
     const data = bytes(f), original = data.slice(); await decodePaymentProof(data, f.type); expect(data).toEqual(original);
   });
   it.each([animated,apng])('rejects animated $type before decoding', async f => { await expect(decodePaymentProof(bytes(f), f.type)).rejects.toThrow('single still'); });
-  it.each([18,19,20])('rejects invalid PNG IHDR field at %s even with correct CRC', index => {
+  it.each([26,27,28])('rejects invalid PNG IHDR field at %s even with correct CRC', index => {
     const data = bytes(png); data[index] = 3; crcChunk(data,8); expect(() => validatePaymentProofBytes(data,png.type)).toThrow();
   });
   it('rejects corrupted PNG IDAT with valid container CRC during actual decoding', async () => {
     const data = bytes(png); data[43] = 0; crcChunk(data,33);
     expect(() => validatePaymentProofBytes(data,png.type)).not.toThrow();
     const log = vi.spyOn(console,'error').mockImplementation(() => {});
-    try { await expect(decodePaymentProof(data,png.type)).rejects.toThrow('pixels'); } finally { log.mockRestore(); }
+    try { await expect(decodePaymentProof(data,png.type)).rejects.toThrow('pixels'); expect(log).not.toHaveBeenCalled(); } finally { log.mockRestore(); }
   });
   it('rejects zero JPEG SOF height', () => {
     const data = bytes(jpeg); const i = Buffer.from(data).indexOf(Buffer.from([255,192])); const v = new DataView(data.buffer); v.setUint16(i+5,0);

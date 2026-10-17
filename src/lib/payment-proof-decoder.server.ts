@@ -7,12 +7,16 @@ export async function decodePaymentProof(bytes: Uint8Array, type: string) {
   const expected = validatePaymentProofBytes(bytes, type);
   const { PhotonImage } = await import('@cf-wasm/photon');
   let image: InstanceType<typeof PhotonImage> | undefined;
+  const originalError = console.error;
   try {
+    // Photon panic hooks print codec data. Suppress only during synchronous decode;
+    // there is no await here, so another request cannot run in this interval.
+    console.error = () => {};
     image = PhotonImage.new_from_byteslice(bytes);
     if (image.get_width() !== expected.width || image.get_height() !== expected.height)
       throw new Error('Decoded dimensions do not match.');
   } catch {
     // WASM panics and codec messages can contain data. Never forward or log them.
     throw new Error('Screenshot pixels could not be decoded safely.');
-  } finally { image?.free(); }
+  } finally { console.error = originalError; image?.free(); }
 }
