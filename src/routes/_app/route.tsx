@@ -33,17 +33,22 @@ function SideContent({ isAdmin, label, onLogout }: { isAdmin?: boolean | undefin
   return (
     <>
       <nav className="flex-1 space-y-1">
-        {nav.map((n) => (
-          <Link key={n.to} to={n.to} className={link} activeProps={{ className: "bg-sidebar-accent font-semibold" }}>
-            <n.icon className="h-4 w-4" />{n.label}
-          </Link>
-        ))}
-        {isAdmin && (
-          <Link to="/admin" className={link} activeProps={{ className: "bg-sidebar-accent font-semibold" }}>
-            <Shield className="h-4 w-4" />Super admin
-          </Link>
+        {isAdmin ? (
+          <>
+            <Link to="/admin" className={link} activeProps={{ className: "bg-sidebar-accent font-semibold" }}>
+              <Shield className="h-4 w-4" />Super admin
+            </Link>
+            <Link to="/admin/posts" className={link} activeProps={{ className: "bg-sidebar-accent font-semibold" }}>
+              <FileSpreadsheet className="h-4 w-4" />Blog CMS
+            </Link>
+          </>
+        ) : (
+          nav.map((n) => (
+            <Link key={n.to} to={n.to} className={link} activeProps={{ className: "bg-sidebar-accent font-semibold" }}>
+              <n.icon className="h-4 w-4" />{n.label}
+            </Link>
+          ))
         )}
-        {isAdmin && <Link to="/admin/posts" className={link}><FileSpreadsheet className="h-4 w-4" />Blog CMS</Link>}
       </nav>
       <div className="mt-4 rounded-md bg-sidebar-accent p-2 text-xs">{label}</div>
       <button className="mt-2 flex items-center gap-2 px-2 py-2 text-sm opacity-80 hover:opacity-100" onClick={onLogout}>
