@@ -1,4 +1,5 @@
 # Roadmap
+- [ ] Payments, Super Admin and Blog CMS: inspection and proposed DEV-only changes for review; implementation waits for review and required SQL approval
 - [x] Excel import: single zone-assignment popup for unmapped/ambiguous cities
 - [x] Uppercase names + autocomplete
 - [x] Duplicate client handling (explicit choice, friendly 23505)
