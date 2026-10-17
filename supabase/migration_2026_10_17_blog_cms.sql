@@ -88,7 +88,7 @@ CREATE TRIGGER blog_stamp BEFORE INSERT OR UPDATE ON public.blog_posts FOR EACH 
 CREATE FUNCTION public.save_blog_post(p_post jsonb) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
 DECLARE pid uuid; tag jsonb;
 BEGIN
- IF auth.role()<>'authenticated' OR NOT public.is_admin() THEN RAISE EXCEPTION 'Admins only' USING ERRCODE='42501'; END IF;
+ IF auth.role() IS DISTINCT FROM 'authenticated' OR public.is_admin() IS DISTINCT FROM true THEN RAISE EXCEPTION 'Admins only' USING ERRCODE='42501'; END IF;
  pid:=(p_post->>'id')::uuid;
  IF jsonb_typeof(p_post->'tags') IS DISTINCT FROM 'array' OR jsonb_array_length(p_post->'tags')>20 THEN RAISE EXCEPTION 'Invalid tags'; END IF;
  INSERT INTO public.blog_posts(id,author_id,title,slug,excerpt,content,status,category_id,image_alt,seo_title,seo_description)

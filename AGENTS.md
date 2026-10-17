@@ -1,7 +1,7 @@
 # EntrySetu
 - Backend is the user's external Supabase (URL + publishable key in src/lib/supabase.ts); Lovable Cloud is not used — user's explicit choice.
 - Schema lives in supabase/entrysetu_schema.sql and is applied manually by the user in the Supabase SQL Editor — no migration tooling access.
-- Privileged writes (payment activation, admin actions) go through SECURITY DEFINER RPCs executable only by service_role, called from src/lib/billing.functions.ts and the Razorpay webhook with EXT_SUPABASE_SECRET_KEY; invoices are issued/cancelled only via create_invoice/cancel_invoice RPCs — keeps numbering atomic and billed data immutable.
+- Gateway activation and verified-proof completion use service-only SECURITY DEFINER RPCs; interactive admin actions/reviews use authenticated audited RPCs with internal role checks; invoices use create_invoice/cancel_invoice — preserves atomic state and immutable billing.
 - Signed-in pages live under src/routes/_app (ssr:false, client-side getUser gate) — the session is in localStorage.
 - Shipment pricing is computed in PostgreSQL (shipments_apply_rate → shipment_rate → city_zone); src/lib/rates.ts + src/lib/cities.ts only mirror it for previews — keep both in sync so previews match stored amounts.
 - Service choices and Excel aliases share the type-specific helpers in src/lib/rates.ts; unresolved imports require an explicit choice, and legacy-only slabs stay read-only and excluded from saves — prevents guessed rates and historical rewrites.
@@ -12,3 +12,8 @@
 - Invoice Bill To Name is edited only on drafts via save_invoice_draft (bill_to_name_custom keeps it through recalc; reissue inherits it) — client records and issued invoices never change.
 - AWB numbers are only suggested by next_awb() from awb_series (client series, else seller default), never reserved; the unique (owner_id, awb) constraint is the sole duplicate/concurrency guard — failed saves consume nothing.
 - Manual charges live in shipments.charge_mode/manual_amount; shipments_apply_rate keeps manual amounts, only entrysetu_private.can_manual_charge (signed-in owner today) may set them, shipments_zz_charge_guard (named to fire last, no column list) freezes all pricing fields on draft/issued shipments for every role, and shipment_charge_audit is trigger-written and immutable — extend staff access only in that function.
+
+- Secret-backed gateway helpers stay in billing.server.ts and are dynamically imported only inside server handlers — prevents privileged helpers entering the client graph.
+- Manual proof completion verifies immutable stored bytes server-side before calling its service-only RPC; profile triggers audit every entitlement change, while reason-bearing review events remain separate — blocks unverified completion and records legacy operations.
+- Blog stores allowlisted structured JSON validated in JS and PostgreSQL; private featured images are delivered only after live published-state checks with no-store — prevents stored XSS and draft leakage.
+- Public blog queries use publishable-key RLS reads; missing schema yields unavailable states, never seeded content — permits review-only setup without invented articles.

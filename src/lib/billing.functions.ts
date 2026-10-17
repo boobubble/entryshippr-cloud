@@ -1,5 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
-import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, PLANS, JOINING_FEE } from "./supabase";
+import { PLANS, JOINING_FEE } from "./supabase";
 
 export const createOrder = createServerFn({ method: "POST" })
   .inputValidator((d: { token: string; plan: "standard" | "unlimited" }) => {
@@ -62,20 +62,13 @@ export const verifyPayment = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+/** Compatibility endpoint: interactive admin writes now require the audited path. */
 export const adminUpdateUser = createServerFn({ method: "POST" })
-  .inputValidator((d: { token: string; userId: string; action: "extend_trial" | "grant_plan" | "revoke"; plan?: "standard" | "unlimited" | undefined }) => {
-    if (!/^[0-9a-f-]{36}$/i.test(d?.userId) || !["extend_trial", "grant_plan", "revoke"].includes(d.action)) throw new Error("Invalid request");
-    if (d.plan && !["standard", "unlimited"].includes(d.plan)) throw new Error("Invalid plan");
-    return d;
-  })
+  .inputValidator((d: { token: string; userId: string; action: "extend_trial" | "grant_plan" | "revoke"; plan?: "standard" | "unlimited"; reason?: string }) => d)
   .handler(async ({ data }) => {
-    const { getUser, rest, rzpAuth, hmacHex, safeEqual, activatePayment } = await import("./billing.server");
-    const me = await getUser(data.token);
-    const roles = await rest(`user_roles?user_id=eq.${me.id}&role=eq.admin&select=id`);
-    if (!roles.length) throw new Error("Admins only");
-    await rest("rpc/admin_set_access", {
-      method: "POST",
-      body: JSON.stringify({ p_user_id: data.userId, p_action: data.action, p_plan: data.plan ?? null }),
-    });
-    return { ok: true };
+    const { authenticatedClient, dbError } = await import("./external-auth.server");
+    const { client } = await authenticatedClient(data.token, true);
+    if (!data.reason || data.reason.trim().length < 3 || data.reason.length > 1000) throw new Error("Use the admin confirmation dialog and enter a reason.");
+    const r = await client.rpc("admin_set_access_audited", { p_user_id: data.userId, p_action: data.action, p_plan: data.plan ?? null, p_reason: data.reason.trim() });
+    dbError(r.error); return { ok: true };
   });
