@@ -1,5 +1,5 @@
 /** Never retain provider messages, bodies, URLs, headers or request data. */
-export function providerError(error: { code?: string; status?: number }, operation = 'Request') {
+export function providerError(error: { code?: string | undefined; status?: number | undefined }, operation = 'Request') {
   const category = ['42P01', '42703', 'PGRST202', 'PGRST205'].includes(error.code || '') ? 'setup'
     : error.code === '42501' || error.status === 403 ? 'permission'
     : ['PGRST301', 'PGRST303'].includes(error.code || '') || error.status === 401 ? 'authentication'

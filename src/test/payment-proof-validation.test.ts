@@ -4,11 +4,14 @@ import { png, jpeg, progressive, webp, lossless, animated, apng } from './paymen
 
 const bytes = (base64: string) => new Uint8Array(Buffer.from(base64, 'base64'));
 describe('Payment proof container validation', () => {
-  it.each([png, jpeg, progressive, webp, lossless, animated, apng])('accepts a genuinely encoded $type without changing stored bytes', fixture => {
+  it.each([png, jpeg, progressive, webp, lossless])('accepts a genuinely encoded $type without changing stored bytes', fixture => {
     const data = bytes(fixture.base64);
     const original = data.slice();
     expect(() => validatePaymentProofBytes(data, fixture.type)).not.toThrow();
     expect(data).toEqual(original);
+  });
+  it.each([animated, apng])('rejects animation $type', fixture => {
+    expect(() => validatePaymentProofBytes(bytes(fixture.base64), fixture.type)).toThrow('single still image');
   });
   it.each([png, jpeg, progressive, webp, lossless, animated, apng])('rejects truncated $type', fixture => {
     const data = bytes(fixture.base64);

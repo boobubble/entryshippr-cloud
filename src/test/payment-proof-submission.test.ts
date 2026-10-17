@@ -23,7 +23,9 @@ describe('Real submission orchestration with local decoder and mocked DEV adapte
     await expect(processPaymentProof(input(), io)).resolves.toEqual({ id });
     expect(io.decode).toHaveBeenCalledTimes(2);
     const uploaded = vi.mocked(io.upload).mock.calls[0]?.[1];
-    expect(new Uint8Array(await uploaded?.arrayBuffer())).toEqual(bytes);
+    expect(uploaded).toBeDefined();
+    if (!uploaded) throw new Error('Upload not called');
+    expect(new Uint8Array(await uploaded.arrayBuffer())).toEqual(bytes);
     expect(io.complete).toHaveBeenCalledWith(id, ownerId);
   });
   it('rejects a server-returned foreign owner path without upload', async () => {
@@ -33,7 +35,7 @@ describe('Real submission orchestration with local decoder and mocked DEV adapte
   it.each(['upload', 'download', 'mismatch', 'completion'])('handles %s failure without false success', async stage => {
     if (stage === 'upload') vi.mocked(io.upload).mockResolvedValue({ error: { statusCode: '500', message: 'secret duplicate text' } });
     if (stage === 'download') vi.mocked(io.download).mockResolvedValue({ error: { message: 'private details' }, data: null });
-    if (stage === 'mismatch') { const other = bytes.slice(); other[40] ^= 1; vi.mocked(io.download).mockResolvedValue({ data: new Blob([other]), error: null }); }
+    if (stage === 'mismatch') { const other = bytes.slice(); other[40] = (other[40] ?? 0) ^ 1; vi.mocked(io.download).mockResolvedValue({ data: new Blob([other]), error: null }); }
     if (stage === 'completion') vi.mocked(io.complete).mockRejectedValue(new Error('Completion unavailable'));
     await expect(processPaymentProof(input(), io)).rejects.toThrow();
     if (stage !== 'completion') expect(io.complete).not.toHaveBeenCalled();

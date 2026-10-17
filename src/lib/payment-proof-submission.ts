@@ -1,7 +1,7 @@
 import { imageExtension, validateImageMeta, validateReference } from './image-validation';
 import { providerError } from './provider-errors';
 
-type ProviderFailure = { code?: string; status?: number; statusCode?: string | number; message?: string };
+type ProviderFailure = { code?: string | undefined; status?: number | undefined; statusCode?: string | number | undefined; message?: string | undefined };
 type Attempt = { id: string; proof_path: string; submitted_at: string | null };
 export type ProofSubmissionIO = {
   decode: (bytes: Uint8Array, type: string) => Promise<void>;
