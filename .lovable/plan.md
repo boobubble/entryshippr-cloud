@@ -21,7 +21,7 @@ Reuse `profiles` subscription state and `payments` history; no duplicate subscri
 
 ## Step 1 — DEV database and storage proposals
 
-Generate for review:
+Review-only files:
 - `supabase/migration_2026_10_17_payment_proofs_admin.sql`
 - `supabase/migration_2026_10_17_payment_proofs_admin_tests.sql`
 - `supabase/migration_2026_10_17_blog_cms.sql`
@@ -89,4 +89,4 @@ Rollback-only SQL tests cover grants/RLS, cross-seller proof denial, unprivilege
 
 Real Preview verification must cover seller upload/read-back, admin rejection/approval, access changes and CMS publish/public read-back. Intercepted/stand-in checks are not real-account verification.
 
-**BLOCKED:** external-account session unavailable; deployed schema/grants, buckets, secrets and Razorpay Test Mode unverified. No tests ran during inspection. Implementation awaits plan review; SQL/storage setup needs separate approval. Nothing published/deployed.
+**BLOCKED:** external-account session unavailable; deployed schema/grants, buckets, secrets and Razorpay Test Mode unverified. No tests ran. Plan review and separate SQL/storage approval required; nothing published.
