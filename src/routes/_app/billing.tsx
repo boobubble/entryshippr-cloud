@@ -7,6 +7,7 @@ import { useProfile, accessState, errMsg } from "@/lib/hooks";
 import { createOrder, verifyPayment } from "@/lib/billing.functions";
 import { PageHead, appHead } from "@/components/PageHead";
 import { Button } from "@/components/ui/button";
+import { PaymentProofForm } from "@/components/PaymentProofForm";
 
 export const Route = createFileRoute("/_app/billing")({
   head: appHead("Subscription", "Choose or renew your EntrySetu plan."),
@@ -42,7 +43,9 @@ function Billing() {
       await loadRzp();
       const token = await accessToken();
       const o = await createOrder({ data: { token, plan } });
-      const rzp = new window.Razorpay!({
+      const Razorpay = window.Razorpay;
+      if (!Razorpay) throw new Error("Could not load Razorpay");
+      const rzp = new Razorpay({
         key: o.keyId, order_id: o.orderId, amount: o.amount * 100, currency: "INR",
         name: "EntrySetu", description: `${PLANS[plan].name} (1 year)${o.withFee ? " + joining fee" : ""}`,
         prefill: { email: o.email, name: me?.profile?.business_name || "" },
@@ -81,13 +84,14 @@ function Billing() {
           );
         })}
       </div>
+      <PaymentProofForm />
       <h2 className="mb-3 mt-8 text-lg font-semibold">Payment history</h2>
       <div className="overflow-x-auto rounded-xl border bg-card">
         <table className="w-full text-sm">
           <thead className="bg-muted text-left"><tr><th className="p-3">Date</th><th className="p-3">Plan</th><th className="p-3">Payment ID</th><th className="p-3 text-right">Amount</th></tr></thead>
           <tbody>
             {payments.map((p: { id: string; created_at: string; plan: string; razorpay_payment_id: string; amount_paise: number }) => (
-              <tr key={p.id} className="border-t"><td className="p-3">{new Date(p.created_at).toLocaleDateString("en-IN")}</td><td className="p-3">{p.plan}</td><td className="p-3 font-mono">{p.razorpay_payment_id}</td><td className="p-3 text-right">{inr(p.amount_paise / 100)}</td></tr>
+              <tr key={p.id} className="border-t"><td className="p-3">{new Date(p.created_at).toLocaleDateString("en-IN")}</td><td className="p-3">{p.plan}</td><td className="p-3 font-mono">{p.razorpay_payment_id || "Manual payment"}</td><td className="p-3 text-right">{inr(p.amount_paise / 100)}</td></tr>
             ))}
             {!payments.length && <tr><td colSpan={4} className="p-6 text-center text-muted-foreground">No payments yet.</td></tr>}
           </tbody>
