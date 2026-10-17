@@ -1,3 +1,4 @@
+import { setResponseHeader } from '@tanstack/react-start/server';
 import { createClient } from '@supabase/supabase-js';
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from './supabase';
 export function externalClient(token?: string) {
@@ -13,6 +14,7 @@ export function externalClient(token?: string) {
   });
 }
 export async function authenticatedClient(token: string, admin = false) {
+  setResponseHeader('Cache-Control', 'no-store');
   if (typeof token !== 'string' || token.length < 20 || token.length > 8000) throw new Error('Please sign in again.');
   const client = externalClient(token);
   const { data, error } = await client.auth.getUser(token);

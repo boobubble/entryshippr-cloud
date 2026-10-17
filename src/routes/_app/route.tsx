@@ -43,6 +43,7 @@ function SideContent({ isAdmin, label, onLogout }: { isAdmin?: boolean | undefin
             <Shield className="h-4 w-4" />Super admin
           </Link>
         )}
+        {isAdmin && <Link to="/admin/posts" className={link}><FileSpreadsheet className="h-4 w-4" />Blog CMS</Link>}
       </nav>
       <div className="mt-4 rounded-md bg-sidebar-accent p-2 text-xs">{label}</div>
       <button className="mt-2 flex items-center gap-2 px-2 py-2 text-sm opacity-80 hover:opacity-100" onClick={onLogout}>

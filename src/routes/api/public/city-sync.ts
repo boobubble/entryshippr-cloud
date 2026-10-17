@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { rest, safeEqual } from "@/lib/billing.functions";
+
 import registry from "@/data/city-registry.json";
 
 // Daily global city sync from the reviewed registry in src/data/city-registry.json.
@@ -9,6 +9,7 @@ export const Route = createFileRoute("/api/public/city-sync")({
   server: {
     handlers: {
       POST: async ({ request }) => {
+        const { rest, safeEqual } = await import("@/lib/billing.server");
         const secret = process.env["CITY_SYNC_SECRET"];
         if (!secret) return new Response("City sync not configured", { status: 503 });
         if (!safeEqual(request.headers.get("x-sync-secret") || "", secret)) return new Response("Unauthorized", { status: 401 });

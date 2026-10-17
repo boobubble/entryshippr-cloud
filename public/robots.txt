@@ -12,3 +12,5 @@ Allow: /
 
 User-agent: *
 Allow: /
+
+Sitemap: https://entryshippr-cloud.lovable.app/sitemap.xml
