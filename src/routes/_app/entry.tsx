@@ -204,7 +204,7 @@ function Entry() {
           <div className="min-w-0"><label className={label} htmlFor="e-mode">Charge</label>
             <select id="e-mode" className={field} value={d.charge} onChange={(e) => setD({ ...d, charge: e.target.value as Draft["charge"], manual: "" })}><option value="auto">Auto</option><option value="manual">Manual</option></select></div>
         </div>
-        <div className="grid grid-cols-2 items-end gap-2 sm:grid-cols-4 xl:grid-cols-[1.3fr_1.8fr_0.9fr_1fr_0.9fr_1.1fr_auto]">
+        <div className="grid grid-cols-2 items-end gap-2 sm:grid-cols-4 md:grid-cols-[1.2fr_1.4fr_0.8fr_0.9fr_0.8fr_1fr_auto] xl:grid-cols-[1.3fr_1.8fr_0.9fr_1fr_0.9fr_1.1fr_auto]">
           <div className="min-w-0"><label className={label} htmlFor="e-awb">AWB Number</label>
             <input id="e-awb" ref={awbRef} className={field} autoComplete="off" maxLength={40} value={d.awb} onChange={(e) => setD({ ...d, awb: e.target.value })} /></div>
           <div className="min-w-0"><label className={label} htmlFor="e-city">Destination City</label>
