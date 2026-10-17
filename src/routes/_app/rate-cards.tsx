@@ -5,7 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase, inr } from "@/lib/supabase";
 import { useClients, useRateCards, useRateSlabs, useZones, errMsg } from "@/lib/hooks";
-import { SERVICES, validateSlabs, type EditSlab, type Service, type Zone } from "@/lib/rates";
+import { SERVICES, servicesFor, validateSlabs, type EditSlab, type Service, type Zone } from "@/lib/rates";
 import type { ShipmentType } from "@/lib/import-weights";
 import { PageHead, appHead } from "@/components/PageHead";
 import { Button } from "@/components/ui/button";
@@ -29,12 +29,13 @@ function RateCards() {
   const zones = zonesQ.data ?? [];
   const [clientId, setClientId] = useState("");
   const [type, setType] = useState<ShipmentType>("DOX");
-  const [draft, setDraft] = useState<Record<Service, EditSlab[]>>({ Standard: [], Fast: [] });
+  const [draft, setDraft] = useState<Record<Service, EditSlab[]>>({ Standard: [], Surface: [], Air: [], Fast: [] });
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [copyTo, setCopyTo] = useState("");
   const unit = type === "DOX" ? "g" : "kg";
   const cid = clientId || null;
+  const services = servicesFor(type);
 
   useEffect(() => {
     const all = slabsQ.data ?? [];
@@ -48,7 +49,7 @@ function RateCards() {
 
   const setRows = (sv: Service, rows: EditSlab[]) => { setDraft({ ...draft, [sv]: rows }); setDirty(true); };
   const errors = Object.fromEntries(SERVICES.map((sv) => [sv, validateSlabs(draft[sv], unit)])) as Record<Service, string[]>;
-  const hasErrors = SERVICES.some((sv) => errors[sv].length);
+  const hasErrors = services.some((sv) => errors[sv].length);
 
   function switchTo(fn: () => void) {
     if (dirty && !window.confirm("You have unsaved changes. Discard them?")) return;
@@ -59,7 +60,7 @@ function RateCards() {
     if (hasErrors) { toast.error("Fix the highlighted problems first"); return; }
     setSaving(true);
     try {
-      for (const sv of SERVICES) {
+      for (const sv of services) {
         const slabs = draft[sv].map((s) => ({
           min_weight: Number(s.min), max_weight: Number(s.max),
           rates: Object.fromEntries(Object.entries(s.rates).filter(([z, v]) => v.trim() !== "" && zones.some((x) => x.id === z)).map(([z, v]) => [z, Number(v)])),
@@ -129,7 +130,8 @@ function RateCards() {
         <p className="mb-4 text-sm text-muted-foreground">Client rates are used first; if a client has none for a type and service, the Default card applies. Shipments with no matching slab, zone or rate are flagged for review, never charged ₹0.</p>
         {!zones.length && !notReady && <p className="mb-4 text-sm text-destructive">You have no zones yet. Create them in <Link to="/cities" className="underline">City & Zone Master</Link> to enter rates.</p>}
 
-        {SERVICES.map((sv) => <SlabTable key={sv} service={sv} unit={unit} zones={zones} rows={draft[sv]} errors={errors[sv]} onChange={(r) => setRows(sv, r)} />)}
+        {services.map((sv) => <SlabTable key={sv} service={sv} unit={unit} zones={zones} rows={draft[sv]} errors={errors[sv]} onChange={(r) => setRows(sv, r)} />)}
+        {type === "NON-DOX" && draft.Standard.length > 0 && <SlabTable service="Standard" unit={unit} zones={zones} rows={draft.Standard} errors={[]} onChange={() => {}} readOnly />}
 
         <div className="sticky bottom-0 mt-4 flex items-center justify-end gap-3 border-t bg-card pt-3">
           {dirty && <span className="text-sm text-muted-foreground">Unsaved changes</span>}
@@ -156,17 +158,17 @@ function RateCards() {
   );
 }
 
-function SlabTable({ service, unit, zones, rows, errors, onChange }: { service: Service; unit: string; zones: Zone[]; rows: EditSlab[]; errors: string[]; onChange: (r: EditSlab[]) => void }) {
+function SlabTable({ service, unit, zones, rows, errors, onChange, readOnly = false }: { service: Service; unit: string; zones: Zone[]; rows: EditSlab[]; errors: string[]; onChange: (r: EditSlab[]) => void; readOnly?: boolean }) {
   const upd = (i: number, p: Partial<EditSlab>) => onChange(rows.map((r, j) => (j === i ? { ...r, ...p } : r)));
   const move = (i: number, d: number) => { const r = [...rows]; const [x] = r.splice(i, 1); r.splice(i + d, 0, x!); onChange(r); };
   const add = () => { const last = rows[rows.length - 1]; onChange([...rows, { key: newKey(), min: last ? last.max : "0", max: "", rates: {} }]); };
   return (
     <div className="mb-6">
       <div className="mb-2 flex items-center justify-between">
-        <h3 className="font-semibold">{service}</h3>
-        <Button size="sm" variant="outline" onClick={add}>+ Add slab</Button>
+        <h3 className="font-semibold">{service}{readOnly ? " (legacy, read-only)" : ""}</h3>
+        {!readOnly && <Button size="sm" variant="outline" onClick={add}>+ Add slab</Button>}
       </div>
-      <div className="overflow-x-auto rounded-lg border">
+      <fieldset disabled={readOnly} className="overflow-x-auto rounded-lg border">
         <table className="w-full text-sm">
           <thead className="bg-muted text-left"><tr>
             <th className="p-2">From ({unit})</th><th className="p-2">To ({unit})</th>
@@ -179,18 +181,18 @@ function SlabTable({ service, unit, zones, rows, errors, onChange }: { service: 
                 <td className="p-1.5"><Input aria-label="From" type="number" min={0} step="any" className="w-24" value={r.min} onChange={(e) => upd(i, { min: e.target.value })} /></td>
                 <td className="p-1.5"><Input aria-label="To" type="number" min={0} step="any" className="w-24" value={r.max} onChange={(e) => upd(i, { max: e.target.value })} /></td>
                 {zones.map((z) => <td key={z.id} className="p-1.5"><Input aria-label={`${z.name} rate`} type="number" min={0} step="0.01" className="w-24" placeholder="—" value={r.rates[z.id] ?? ""} onChange={(e) => upd(i, { rates: { ...r.rates, [z.id]: e.target.value } })} /></td>)}
-                <td className="whitespace-nowrap p-1.5 text-right">
+                <td className="whitespace-nowrap p-1.5 text-right">{!readOnly && <>
                   <Button size="sm" variant="ghost" aria-label="Move up" disabled={i === 0} onClick={() => move(i, -1)}>↑</Button>
                   <Button size="sm" variant="ghost" aria-label="Move down" disabled={i === rows.length - 1} onClick={() => move(i, 1)}>↓</Button>
                   <Button size="sm" variant="ghost" onClick={() => onChange([...rows.slice(0, i + 1), { ...r, key: newKey(), rates: { ...r.rates } }, ...rows.slice(i + 1)])}>Duplicate</Button>
                   <Button size="sm" variant="ghost" onClick={() => onChange(rows.filter((_, j) => j !== i))}>Delete</Button>
-                </td>
+                </>}</td>
               </tr>
             ))}
             {!rows.length && <tr><td colSpan={zones.length + 3} className="p-4 text-center text-muted-foreground">No slabs. Click "Add slab".</td></tr>}
           </tbody>
         </table>
-      </div>
+      </fieldset>
       {errors.length > 0 && <ul className="mt-2 list-disc pl-5 text-sm text-destructive">{errors.map((e) => <li key={e}>{e}</li>)}</ul>}
     </div>
   );

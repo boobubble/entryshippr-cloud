@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import { supabase, inr } from "@/lib/supabase";
 import { useClients, useRateSlabs, useZones, errMsg } from "@/lib/hooks";
-import { matchRate, normService, billedWeight } from "@/lib/rates";
+import { matchRate, normService, billedWeight, servicesFor, type Service } from "@/lib/rates";
 import { normCity, registerCities, zoneOf, type CityRes } from "@/lib/cities";
 import { CityZoneDialog } from "@/components/CityZoneDialog";
 import { PageHead, appHead } from "@/components/PageHead";
@@ -25,7 +25,7 @@ export const Route = createFileRoute("/_app/import")({
 });
 
 type Row = {
-  line: number; awb: string; date: string; client: string; destination: string; service: string; pieces: number;
+  line: number; awb: string; date: string; client: string; destination: string; service: Service | null; rawService: string; pieces: number;
   type: ShipmentType | null; weights: (number | null)[]; billing: number | null; amount: number | null; error?: string; dup?: "file" | "saved";
   receiver: string; receiverPhone: string;
   priced?: { rate: number; zone: string | null; slab: string }; review?: string;
@@ -61,6 +61,7 @@ function ImportPage() {
   const [dialog, setDialog] = useState(false);
   const [autoOpened, setAutoOpened] = useState(false);
   const [skipped, setSkipped] = useState(false);
+  const [servicePicks, setServicePicks] = useState<Record<number, Service>>({});
 
   const saved = useQuery({
     queryKey: ["import_mappings"],
@@ -83,7 +84,7 @@ function ImportPage() {
       // header row = first row (within 10) with at least 3 text cells
       const hr = Math.max(0, aoa.slice(0, 10).findIndex((r) => r.filter((c) => typeof c === "string" && c.trim()).length >= 3));
       const det = detectMapping(aoa[hr] ?? []);
-      setSheet(aoa); setHeaderRow(hr); setMap(det);
+      setSheet(aoa); setHeaderRow(hr); setMap(det); setServicePicks({});
       if (det.format === "1308") {
         // Recurring 1308 sheets: keep this mapping as a reusable preset.
         setMapName("1308 format");
@@ -154,7 +155,8 @@ function ImportPage() {
         destination: String(get(r, "destination") ?? "").trim(),
         receiver: String(get(r, "receiver") ?? "").trim().replace(/\s+/g, " "),
         receiverPhone: String(get(r, "receiver_phone") ?? "").trim(),
-        service: normService(get(r, "service")),
+        rawService: String(get(r, "service") ?? "").trim(),
+        service: normService(servicePicks[headerRow + i + 2] ?? get(r, "service"), type),
         pieces: Math.max(1, Math.round(Number(get(r, "pieces")) || 1)),
         amount: amtRaw !== "" && amtRaw != null && Number.isFinite(Number(amtRaw)) ? Number(amtRaw) : null,
       };
@@ -169,20 +171,22 @@ function ImportPage() {
         else if (seen.has(key)) row.dup = "file";
         seen.add(key);
       }
-      if (!row.error && !row.dup) {
+      if (!row.error && !row.dup && !row.service) row.review = "Choose a service: missing or unrecognised service mapping";
+      if (!row.error && !row.dup && row.service && type && billing != null) {
         const clientId = clientIds.get(nameKey(client)) ?? null;
         const city = cityMap?.get(normCity(row.destination));
         const z = !row.destination ? { zone: null, zoneReason: "No destination city" } : cityMap ? zoneOf(city) : { zone: null, zoneReason: "Checking city…" };
-        const res = matchRate(slabs, { clientId, type: type!, service: row.service as "Standard" | "Fast", ...z, weight: billing! });
+        const res = matchRate(slabs, { clientId, type, service: row.service, ...z, weight: billing });
         if (res.ok) row.priced = { rate: res.rate, zone: res.zone, slab: res.slab };
         else row.review = res.reason;   // no zone-less fallback for typed shipments (mirrors shipment_rate)
       }
       out.push(row);
     });
     return out;
-  }, [sheet, map, headerRow, existing, slabs, clientIds, cityMap]);
+  }, [sheet, map, headerRow, existing, slabs, clientIds, cityMap, servicePicks]);
 
-  const importable = rows.filter((r) => !r.error && !r.dup);
+  const unresolvedServices = rows.filter((r) => !r.error && !r.dup && !r.service);
+  const importable = rows.filter((r) => !r.error && !r.dup && r.service);
   const valid = importable.filter((r) => !r.review);
   const review = rows.filter((r) => r.review).length;
   const dups = rows.filter((r) => r.dup).length;
@@ -201,6 +205,7 @@ function ImportPage() {
   const unresolvedClients = sameNameInSheet.filter((k) => !clientPick[k]);
 
   async function process() {
+    if (unresolvedServices.length) { toast.error("Choose a service for every unrecognised or missing mapping before importing"); return; }
     // Unassigned cities must be assigned or explicitly skipped before importing.
     if (unmapped.length && !skipped) { setDialog(true); return; }
     setBusy(true);
@@ -223,7 +228,8 @@ function ImportPage() {
       if (!recvOk && importable.some((r) => r.receiver || r.receiverPhone)) toast.warning("Receiver name/number columns are not in the database yet — receiver details will not be saved.");
       const out = [];
       for (const r of importable) {
-        const t = r.type!; const kg = toKg(t, billedWeight(t, r.billing!));
+        if (!r.type || r.billing == null || !r.service) continue;
+        const t = r.type; const kg = toKg(t, billedWeight(t, r.billing));
         const cid = byName.get(nameKey(r.client))!;
         const amount = r.priced?.rate ?? 0; // the database re-prices (or flags Needs Review) and overrides this
         const [f, g, h, tt] = r.weights;
@@ -309,7 +315,7 @@ function ImportPage() {
               <div className="text-sm">Total for valid rows: {inr(total)}</div>
               <label className="flex items-center gap-2 text-sm"><Switch checked={createClients} onCheckedChange={setCreateClients} />Create new clients from sheet names</label>
               {unmapped.length > 0 && <Button variant="outline" onClick={() => setDialog(true)}>Assign zones ({unmapped.length} {unmapped.length === 1 ? "city" : "cities"})</Button>}
-              <Button onClick={process} disabled={busy || !importable.length || missingReq.length > 0 || cityMap === null || unresolvedClients.length > 0}>{busy ? "Importing…" : cityMap === null ? "Checking cities…" : `Import ${importable.length} shipments`}</Button>
+              <Button onClick={process} disabled={busy || !importable.length || missingReq.length > 0 || cityMap === null || unresolvedClients.length > 0 || unresolvedServices.length > 0}>{busy ? "Importing…" : cityMap === null ? "Checking cities…" : `Import ${importable.length} shipments`}</Button>
             </div>
             {sameNameInSheet.length > 0 && (
               <div className="mb-3 space-y-2 rounded-lg border border-destructive/50 p-3 text-sm">
@@ -337,7 +343,7 @@ function ImportPage() {
                     <td className="p-2">{r.type ?? "—"}</td>
                     {r.weights.map((w, j) => <td key={j} className="p-2">{w ?? ""}</td>)}
                     <td className="p-2 font-medium">{r.type && r.billing != null ? fmtWeight(r.type, r.billing) : "—"}</td>
-                    <td className="p-2">{r.service}</td><td className="p-2">{up(r.destination)}</td>
+                    <td className="p-2">{r.service ?? (r.type && !r.dup ? <><span className="block text-xs text-muted-foreground">{r.rawService || "Missing"}</span><select aria-label={`Service for row ${r.line}`} className="h-9 rounded-md border bg-background px-2" value="" onChange={(e) => setServicePicks((p) => ({ ...p, [r.line]: e.target.value as Service }))}><option value="">Choose service…</option>{servicesFor(r.type).map((sv) => <option key={sv}>{sv}</option>)}</select></> : r.rawService || "—")}</td><td className="p-2">{up(r.destination)}</td>
                     <td className="p-2 whitespace-nowrap">{r.priced ? `${inr(r.priced.rate)} · ${[r.priced.zone, r.priced.slab].filter(Boolean).join(" · ")}` : "—"}{r.amount != null && r.priced && r.amount !== r.priced.rate ? <span className="block text-xs text-muted-foreground">sheet: {inr(r.amount)}</span> : null}</td>
                     <td className="p-2">{r.error ? <span className="text-destructive">{r.error}</span> : r.review ? <span className="text-destructive">Needs review: {r.review}</span> : r.dup ? <span className="text-muted-foreground">{r.dup === "saved" ? "Duplicate (already imported)" : "Duplicate in file"}</span> : "OK"}</td>
                   </tr>

@@ -4,6 +4,7 @@
 - Privileged writes (payment activation, admin actions) go through SECURITY DEFINER RPCs executable only by service_role, called from src/lib/billing.functions.ts and the Razorpay webhook with EXT_SUPABASE_SECRET_KEY; invoices are issued/cancelled only via create_invoice/cancel_invoice RPCs — keeps numbering atomic and billed data immutable.
 - Signed-in pages live under src/routes/_app (ssr:false, client-side getUser gate) — the session is in localStorage.
 - Shipment pricing is computed in PostgreSQL (shipments_apply_rate → shipment_rate → city_zone); src/lib/rates.ts + src/lib/cities.ts only mirror it for previews — keep both in sync so previews match stored amounts.
+- Service choices and Excel aliases share the type-specific helpers in src/lib/rates.ts; unresolved imports require an explicit choice, and legacy-only slabs stay read-only and excluded from saves — prevents guessed rates and historical rewrites.
 - Cities are a global read-only table (written only by ensure_city / sync_cities); city→zone assignments live in tenant-scoped seller_city_zones — keeps city data shared while zones stay private per seller.
 - InvoiceDocument is the shared read-only invoice preview and print markup; scoped A4 print styles repeat shipment headers without repeating totals, keeping PDF and on-screen billing details consistent.
 - Invoices are edited only as drafts via create/save/finalize_invoice_draft RPCs; line edits live in invoice_lines/invoice_charges and totals are recomputed in PostgreSQL — shipments, rate cards and issued invoices stay untouched.
