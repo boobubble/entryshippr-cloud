@@ -34,12 +34,12 @@ Generate for review:
 - New append-only `subscription_audit`: trusted actor, seller, action, reason, before/after access, payment reference and timestamp. No browser-written audit entries or editable history.
 - New submit/review RPCs and an audited admin-access RPC: authenticated server checks plus database role validation; atomic row locks prevent double approval/extension. Upload/submission never activates access. Approval marks the manual payment paid, updates existing entitlement and joining-fee state, and writes audit in one transaction. Rejection writes its reason without changing access.
 - `activate_payment()`: explicitly require a Razorpay-channel record so gateway callbacks cannot approve manual proofs. Preserve its existing amount checks, row-locking and idempotent paid handling.
-- Preserve the existing service-only `admin_set_access(uuid,text,plan_kind)` signature for compatibility; enforce audit through the authoritative entitlement-write path, and have new interactive admin calls use the audited RPC with trusted actor/reason. Review legacy service calls explicitly so none become an unaudited bypass.
+- Preserve service-only `admin_set_access(uuid,text,plan_kind)` compatibility; enforce authoritative audit for all entitlement writes. New interactive calls use an audited actor/reason RPC; legacy calls cannot bypass audit.
 - All new public tables get explicit least-privilege grants, RLS and tightly scoped function execution. Existing profile plan-field restrictions remain intact.
 
-### Storage setup — separate from SQL
+### Storage setup — not SQL
 
-Provision through the external Storage API only after separate approval; do not insert buckets through SQL or activate Cloud. Propose private `payment-proofs` and private `blog-images` buckets. Proposed limit: **5 MB per image**, PNG/JPEG/WebP only, no SVG. Private originals and immutable random paths; authorized signed access only. Bucket policies and file metadata checks are included in reviewed SQL, while bucket provisioning is a separate setup step. No payment destination, QR code or bank details will be invented.
+After separate approval, use the external Storage API to provision private `payment-proofs` and `blog-images` buckets; no bucket inserts through SQL or Cloud activation. Proposed cap: **5 MB**, PNG/JPEG/WebP only, immutable random paths, private originals. Reviewed SQL defines object access policies. Never invent bank details or QR/payment instructions.
 
 ### Blog schema
 
@@ -54,10 +54,10 @@ Add `blog_posts`, `blog_categories`, `blog_tags`, `blog_post_tags`: title, uniqu
 - `src/routes/api/public/razorpay-webhook.ts`: update imports only if shared helpers move; preserve signature checks and gateway behavior.
 
 **Add:**
-- `src/lib/billing.server.ts`: shared gateway/database helpers for handlers, not imported by UI.
-- `src/lib/admin.functions.ts`, `src/lib/payment-proofs.functions.ts`: validate authenticated callers and database-backed admin roles before privileged work.
+- `src/lib/billing.server.ts`: server-only gateway/database helpers.
+- `src/lib/admin.functions.ts`, `src/lib/payment-proofs.functions.ts`: authenticated, role-checked operations.
 - `src/lib/payment-proof-validation.ts`: shared file/reference validation.
-- `src/components/PaymentProofForm.tsx`, `src/components/admin/PaymentReview.tsx`: focused submission/review controls.
+- `src/components/PaymentProofForm.tsx`, `src/components/admin/PaymentReview.tsx`: upload/review controls.
 - `src/routes/_app/admin_.sellers.$id.tsx`: protected seller detail with plan/dates and paginated payment/audit history. Un-nested filename preserves the existing `/admin` page.
 
 Proof access is payment-owner/admin checked, short-lived and private/no-store. Validate image signatures, MIME and size server-side; never trust seller/amount/reviewer fields from the browser.
