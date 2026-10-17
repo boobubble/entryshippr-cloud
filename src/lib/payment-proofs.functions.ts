@@ -44,10 +44,10 @@ export const paymentProofUrl = createServerFn({ method: 'POST' })
   .handler(async ({ data }) => {
     const { authenticatedClient, dbError } = await import('./external-auth.server');
     const { client } = await authenticatedClient(data.token);
-    const row = await client.from('payment_submissions').select('proof_path,submitted_at').eq('id', data.id).maybeSingle();
+    const row = await client.from('payment_submissions').select('proof_path,submitted_at').eq('id', data.id).maybeSingle().then(result => result, () => { throw providerError({}, 'Payment proof lookup'); });
     dbError(row.error);
     if (!row.data?.submitted_at) throw new Error('Payment proof not found.');
-    const signed = await client.storage.from('payment-proofs').createSignedUrl(row.data.proof_path, 60);
+    const signed = await client.storage.from('payment-proofs').createSignedUrl(row.data.proof_path, 60).catch(() => { throw providerError({}, 'Payment proof viewing'); });
     if (signed.error || !signed.data) throw new Error('Payment proof unavailable.');
     return { url: signed.data.signedUrl };
   });
@@ -56,6 +56,6 @@ export const reviewPaymentProof = createServerFn({ method: 'POST' })
   .handler(async ({ data }) => {
     const { authenticatedClient, dbError } = await import('./external-auth.server');
     const { client } = await authenticatedClient(data.token, true);
-    const result = await client.rpc('review_manual_payment', { p_id: data.id, p_decision: data.decision, p_reason: data.reason });
+    const result = await client.rpc('review_manual_payment', { p_id: data.id, p_decision: data.decision, p_reason: data.reason }).then(result => result, () => { throw providerError({}, 'Payment proof review'); });
     dbError(result.error); return { ok: true };
   });
