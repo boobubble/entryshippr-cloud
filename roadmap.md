@@ -14,3 +14,4 @@
 - [ ] Service matrix SQL (DOX Standard/Fast; NON-DOX Surface/Air/Fast, Option A legacy) — awaiting user review/run in DEV
 - [x] Service matrix app integration — 58 automated tests passed; isolated browser checks passed; legacy cards read-only
 - [ ] Service matrix authenticated DEV save/read-back and invoice verification — blocked: external account session unavailable; deployed service-matrix compatibility unverified
+- [x] Consignment Entry layout: Charge moved to row 1; two balanced rows verified at 1010 and 1440 px
