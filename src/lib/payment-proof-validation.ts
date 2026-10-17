@@ -52,12 +52,12 @@ export function validatePaymentProofBytes(bytes: Uint8Array, type: string) {
       const length = view.getUint16(offset);
       if (length < 2 || offset + length > bytes.length) invalid();
       if ([0xc0,0xc1,0xc2,0xc3,0xc5,0xc6,0xc7,0xc9,0xca,0xcb,0xcd,0xce,0xcf].includes(marker)) {
-        if (length < 8 || view.getUint16(offset + 3) === 0 || view.getUint16(offset + 5) === 0) invalid();
+        if (length < 8 || view.getUint16(offset + 5) === 0 || bytes[offset + 7] === 0 || length !== 8 + 3 * bytes[offset + 7]) invalid();
         frame = true;
       }
       offset += length;
       if (marker === 0xda) {
-        if (!frame || length < 6) invalid();
+        if (!frame || length < 6 || bytes[offset - length + 2] === 0 || length !== 6 + 2 * bytes[offset - length + 2]) invalid();
         const start = offset;
         while (offset < bytes.length) {
           if (bytes[offset] !== 0xff) { offset++; continue; }
@@ -82,14 +82,30 @@ export function validatePaymentProofBytes(bytes: Uint8Array, type: string) {
       const end = offset + 8 + length;
       if (end + (length & 1) > bytes.length) invalid();
       if (chunk === 'VP8 ') {
-        if (length < 10 || text(offset + 11, 3) !== '\x9d\x01\x2a' || (view.getUint16(offset + 14, true) & 0x3fff) === 0 || (view.getUint16(offset + 16, true) & 0x3fff) === 0) invalid();
+        if (length <= 10 || text(offset + 11, 3) !== '\x9d\x01\x2a' || (view.getUint16(offset + 14, true) & 0x3fff) === 0 || (view.getUint16(offset + 16, true) & 0x3fff) === 0) invalid();
         image = true;
       } else if (chunk === 'VP8L') {
-        if (length < 5 || bytes[offset + 8] !== 0x2f) invalid();
+        if (length <= 5 || bytes[offset + 8] !== 0x2f) invalid();
         image = true;
       } else if (chunk === 'ANMF') {
         if (length < 24) invalid();
-        // Animated containers need pixel decoding to validate their nested frames.
+        let nested = offset + 24;
+        let frameImage = false;
+        while (nested + 8 <= end) {
+          const name = text(nested, 4);
+          const size = view.getUint32(nested + 4, true);
+          const next = nested + 8 + size + (size & 1);
+          if (next > end) invalid();
+          if (name === 'VP8 ') {
+            if (size <= 10 || text(nested + 11, 3) !== '\x9d\x01\x2a') invalid();
+            frameImage = true;
+          } else if (name === 'VP8L') {
+            if (size <= 5 || bytes[nested + 8] !== 0x2f) invalid();
+            frameImage = true;
+          }
+          nested = next;
+        }
+        if (!frameImage || nested !== end) invalid();
         image = true;
       } else if (chunk === 'VP8X' && length !== 10) invalid();
       offset = end + (length & 1);
