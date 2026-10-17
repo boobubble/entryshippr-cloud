@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { hmacHex, safeEqual, rest, activatePayment } from "@/lib/billing.functions";
+
 
 // Razorpay -> Settings -> Webhooks. Events: payment.captured, order.paid.
 // Backup path so a plan still activates if the buyer closes the browser before verification.
@@ -7,6 +7,7 @@ export const Route = createFileRoute("/api/public/razorpay-webhook")({
   server: {
     handlers: {
       POST: async ({ request }) => {
+        const { hmacHex, safeEqual, rest, activatePayment } = await import("@/lib/billing.server");
         const secret = process.env["RAZORPAY_WEBHOOK_SECRET"];
         if (!secret) return new Response("Webhook not configured", { status: 503 });
         const raw = await request.text();

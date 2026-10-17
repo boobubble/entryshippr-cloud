@@ -1,75 +1,37 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
-import { supabase, accessToken, inr } from "@/lib/supabase";
-import { useProfile, accessState, errMsg, type Profile } from "@/lib/hooks";
-import { adminUpdateUser } from "@/lib/billing.functions";
-import { PageHead, appHead } from "@/components/PageHead";
-import { Button } from "@/components/ui/button";
-
-export const Route = createFileRoute("/_app/admin")({
-  head: appHead("Super admin", "Manage EntrySetu subscribers and payments."),
-  component: Admin,
-});
-
-function Admin() {
-  const { data: me } = useProfile();
-  const qc = useQueryClient();
-  const { data } = useQuery({
-    queryKey: ["admin"],
-    enabled: !!me?.isAdmin,
-    queryFn: async () => {
-      const [p, pay] = await Promise.all([
-        supabase.from("profiles").select("*").order("created_at", { ascending: false }),
-        supabase.from("payments").select("*").eq("status", "paid").order("created_at", { ascending: false }),
-      ]);
-      return { profiles: (p.data || []) as (Profile & { created_at: string })[], payments: (pay.data || []) as { id: string; owner_id: string; amount_paise: number; plan: string; created_at: string; razorpay_payment_id: string }[] };
-    },
-  });
-  if (me && !me.isAdmin) return <p>Admins only.</p>;
-
-  async function act(userId: string, action: "extend_trial" | "grant_plan" | "revoke", plan?: "standard" | "unlimited") {
-    try {
-      await adminUpdateUser({ data: { token: await accessToken(), userId, action, plan } });
-      toast.success("Updated");
-      qc.invalidateQueries({ queryKey: ["admin"] });
-    } catch (e) { toast.error(errMsg(e)); }
-  }
-  const revenue = (data?.payments || []).reduce((a, p) => a + Number(p.amount_paise) / 100, 0);
-  const paid = (data?.profiles || []).filter((p) => accessState(p).paid).length;
-  const email = (id: string) => data?.profiles.find((p) => p.id === id)?.email;
-
-  return (
-    <div>
-      <PageHead title="Super admin" />
-      <div className="mb-6 grid gap-4 md:grid-cols-3">
-        {[["Businesses", data?.profiles.length ?? "–"], ["Paid subscribers", paid], ["Total revenue", inr(revenue)]].map(([l, v]) => (
-          <div key={String(l)} className="rounded-xl border bg-card p-5"><div className="text-xs uppercase text-muted-foreground">{l}</div><div className="mt-2 text-2xl font-bold">{v}</div></div>
-        ))}
-      </div>
-      <div className="overflow-x-auto rounded-xl border bg-card">
-        <table className="w-full text-sm">
-          <thead className="bg-muted text-left"><tr><th className="p-3">Business</th><th className="p-3">Email</th><th className="p-3">Joined</th><th className="p-3">Status</th><th className="p-3" /></tr></thead>
-          <tbody>{data?.profiles.map((p) => (
-            <tr key={p.id} className="border-t"><td className="p-3">{p.business_name}</td><td className="p-3">{p.email}</td><td className="p-3">{new Date(p.created_at).toLocaleDateString("en-IN")}</td><td className="p-3">{accessState(p).label}</td>
-              <td className="space-x-1 whitespace-nowrap p-3 text-right">
-                <Button size="sm" variant="outline" onClick={() => act(p.id, "extend_trial")}>+5d trial</Button>
-                <Button size="sm" variant="outline" onClick={() => act(p.id, "grant_plan", "standard")}>Grant Std</Button>
-                <Button size="sm" variant="outline" onClick={() => act(p.id, "grant_plan", "unlimited")}>Grant Unl.</Button>
-                <Button size="sm" variant="ghost" onClick={() => confirm("Revoke access?") && act(p.id, "revoke")}>Revoke</Button>
-              </td></tr>
-          ))}</tbody>
-        </table>
-      </div>
-      <h2 className="mb-3 mt-8 text-lg font-semibold">Payments</h2>
-      <div className="overflow-x-auto rounded-xl border bg-card">
-        <table className="w-full text-sm">
-          <thead className="bg-muted text-left"><tr><th className="p-3">Date</th><th className="p-3">User</th><th className="p-3">Plan</th><th className="p-3">Payment ID</th><th className="p-3 text-right">Amount</th></tr></thead>
-          <tbody>{data?.payments.map((p) => (
-            <tr key={p.id} className="border-t"><td className="p-3">{new Date(p.created_at).toLocaleDateString("en-IN")}</td><td className="p-3">{email(p.owner_id)}</td><td className="p-3">{p.plan}</td><td className="p-3 font-mono">{p.razorpay_payment_id}</td><td className="p-3 text-right">{inr(p.amount_paise / 100)}</td></tr>
-          ))}</tbody>
-        </table>
-      </div>
-    </div>
-  );
+import { createFileRoute,Link } from '@tanstack/react-router';
+import { useState } from 'react';
+import { useQuery,useQueryClient } from '@tanstack/react-query';
+import { useServerFn } from '@tanstack/react-start';
+import { toast } from 'sonner';
+import { supabase,accessToken,inr } from '@/lib/supabase';
+import { useProfile,accessState,errMsg,type Profile } from '@/lib/hooks';
+import { getAdminSellers,auditedAdminAction } from '@/lib/admin.functions';
+import { PaymentReview } from '@/components/admin/PaymentReview';
+import { PageHead,appHead } from '@/components/PageHead';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
+import { Select,SelectContent,SelectItem,SelectTrigger,SelectValue } from '@/components/ui/select';
+import { Dialog,DialogContent,DialogHeader,DialogTitle,DialogFooter } from '@/components/ui/dialog';
+export const Route=createFileRoute('/_app/admin')({head:appHead('Super admin','Manage EntrySetu subscribers and payments.'),component:Admin});
+function Admin(){
+ const {data:me}=useProfile();const qc=useQueryClient();const [page,setPage]=useState(0);const [search,setSearch]=useState('');const [plan,setPlan]=useState<'all'|'standard'|'unlimited'>('all');const [status,setStatus]=useState<'all'|'paid'|'trial'|'expired'>('all');
+ const [action,setAction]=useState<{userId:string;action:'extend_trial'|'grant_plan'|'revoke';plan:'standard'|'unlimited'|null}|null>(null);const [reason,setReason]=useState('');const [busy,setBusy]=useState(false);const [paymentPage,setPaymentPage]=useState(0);const [auditPage,setAuditPage]=useState(0);
+ const get=useServerFn(getAdminSellers);const update=useServerFn(auditedAdminAction);
+ const data=useQuery({queryKey:['admin',page,search,plan,status],enabled:!!me?.isAdmin,retry:false,queryFn:async()=>get({data:{token:await accessToken(),page,search,plan,status}})});
+ const payments=useQuery({queryKey:['admin-payments',paymentPage],enabled:!!me?.isAdmin,queryFn:async()=>{const role=await supabase.rpc('is_admin');if(role.error||role.data!==true)throw new Error('Admins only.');const r=await supabase.from('payments').select('*',{count:'exact'}).eq('status','paid').order('created_at',{ascending:false}).order('id').range(paymentPage*20,paymentPage*20+19);if(r.error)throw r.error;return {rows:r.data||[],count:r.count||0};}});
+ const audit=useQuery({queryKey:['subscription-audit',auditPage],enabled:!!me?.isAdmin,retry:false,queryFn:async()=>{const r=await supabase.from('subscription_audit').select('*',{count:'exact'}).order('created_at',{ascending:false}).order('id').range(auditPage*20,auditPage*20+19);if(r.error)throw new Error('Audit history is awaiting the reviewed DEV setup.');return {rows:r.data||[],count:r.count||0};}});
+ async function act(){if(!action||busy)return;setBusy(true);try{await update({data:{token:await accessToken(),...action,reason}});toast.success('Access updated and audited.');setAction(null);await Promise.all([qc.invalidateQueries({queryKey:['admin']}),qc.invalidateQueries({queryKey:['subscription-audit']})]);}catch(e){toast.error(errMsg(e));}finally{setBusy(false);}}
+ const pick=(p:Profile,a:'extend_trial'|'grant_plan'|'revoke',value:'standard'|'unlimited'|null=null)=>{setAction({userId:p.id,action:a,plan:value});setReason('');};
+ const pagination=(value:number,count:number,set:(page:number)=>void)=><div className="my-3 flex items-center justify-end gap-3"><Button size="sm" variant="outline" disabled={!value} onClick={()=>set(value-1)}>Previous</Button><span className="text-sm">Page {value+1}</span><Button size="sm" variant="outline" disabled={(value+1)*20>=count} onClick={()=>set(value+1)}>Next</Button></div>;
+ if(!me)return <p>Loading…</p>;if(!me.isAdmin)return <p>Admins only.</p>;
+ return <><PageHead title="Super admin"><Button variant="outline" asChild><Link to="/admin/posts">Blog CMS</Link></Button></PageHead>
+ <div className="mb-5 grid gap-3 sm:grid-cols-3"><div><Label htmlFor="seller-search">Business / email</Label><Input id="seller-search" maxLength={100} value={search} onChange={e=>{setSearch(e.target.value);setPage(0);}}/></div><div><Label>Plan</Label><Select value={plan} onValueChange={v=>{setPlan(v as typeof plan);setPage(0);}}><SelectTrigger><SelectValue/></SelectTrigger><SelectContent>{['all','standard','unlimited'].map(v=><SelectItem key={v} value={v}>{v}</SelectItem>)}</SelectContent></Select></div><div><Label>Access</Label><Select value={status} onValueChange={v=>{setStatus(v as typeof status);setPage(0);}}><SelectTrigger><SelectValue/></SelectTrigger><SelectContent>{['all','paid','trial','expired'].map(v=><SelectItem key={v} value={v}>{v}</SelectItem>)}</SelectContent></Select></div></div>
+ {data.error&&<p role="alert" className="text-destructive">{errMsg(data.error)}</p>}<p className="mb-3 text-sm text-muted-foreground">{data.data?.count??'—'} matching businesses</p>
+ <div className="overflow-x-auto rounded-md border"><table className="w-full text-sm"><thead className="bg-muted text-left"><tr>{['Business','Email','Joined','Status','Actions'].map(h=><th key={h} className="p-3">{h}</th>)}</tr></thead><tbody>{data.data?.rows.map(p=><tr key={p.id} className="border-t"><td className="p-3"><Link to="/admin/sellers/$id" params={{id:p.id}} className="text-primary">{p.business_name||p.id}</Link></td><td className="p-3">{p.email}</td><td className="p-3">{new Date(p.created_at).toLocaleDateString('en-IN')}</td><td className="p-3">{accessState(p as Profile).label}</td><td className="space-x-1 whitespace-nowrap p-3"><Button size="sm" variant="outline" onClick={()=>pick(p as Profile,'extend_trial')}>+5d trial</Button><Button size="sm" variant="outline" onClick={()=>pick(p as Profile,'grant_plan','standard')}>Grant Std</Button><Button size="sm" variant="outline" onClick={()=>pick(p as Profile,'grant_plan','unlimited')}>Grant Unl.</Button><Button size="sm" variant="ghost" onClick={()=>pick(p as Profile,'revoke')}>Revoke</Button></td></tr>)}</tbody></table></div>{pagination(page,data.data?.count||0,setPage)}
+ <PaymentReview/>
+ <section className="mt-8 border-t pt-6"><h2 className="mb-3 text-lg font-semibold">Paid payment history</h2>{payments.error&&<p role="alert">{errMsg(payments.error)}</p>}<div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-muted text-left"><tr>{['Date','Seller ID','Plan','Payment ID','Amount'].map(h=><th className="p-3" key={h}>{h}</th>)}</tr></thead><tbody>{payments.data?.rows.map(p=><tr className="border-b" key={p.id}><td className="p-3">{new Date(p.created_at).toLocaleDateString('en-IN')}</td><td className="p-3 font-mono text-xs">{p.owner_id}</td><td className="p-3">{p.plan}</td><td className="p-3">{p.razorpay_payment_id||'Manual payment'}</td><td className="p-3">{inr(Number(p.amount_paise)/100)}</td></tr>)}</tbody></table></div>{pagination(paymentPage,payments.data?.count||0,setPaymentPage)}</section>
+ <section className="mt-8 border-t pt-6"><h2 className="mb-3 text-lg font-semibold">Subscription audit</h2>{audit.error&&<p role="alert" className="text-destructive">{errMsg(audit.error)}</p>}<div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-muted text-left"><tr>{['Date','Seller ID','Actor ID','Action','Reason','Before / after'].map(h=><th key={h} className="p-3">{h}</th>)}</tr></thead><tbody>{audit.data?.rows.map(r=><tr key={r.id} className="border-b"><td className="p-3">{new Date(r.created_at).toLocaleString('en-IN')}</td><td className="p-3 font-mono text-xs">{r.owner_id}</td><td className="p-3 font-mono text-xs">{r.actor_id||'Service operation'}</td><td className="p-3">{r.action}</td><td className="p-3">{r.reason||'—'}</td><td className="max-w-xs break-words p-3 text-xs">{r.old_access&&JSON.stringify(r.old_access)} → {r.new_access&&JSON.stringify(r.new_access)}</td></tr>)}</tbody></table></div>{pagination(auditPage,audit.data?.count||0,setAuditPage)}</section>
+ <Dialog open={!!action} onOpenChange={open=>{if(!open&&!busy)setAction(null);}}><DialogContent><DialogHeader><DialogTitle>Confirm access change</DialogTitle></DialogHeader><p className="text-sm">{action?.action.replaceAll('_',' ')}{action?.plan?` · ${action.plan}`:''}</p><Label htmlFor="access-reason">Reason</Label><Textarea id="access-reason" maxLength={1000} value={reason} disabled={busy} onChange={e=>setReason(e.target.value)}/><DialogFooter><Button disabled={busy||reason.trim().length<3} onClick={act}>{busy?'Saving…':'Confirm'}</Button></DialogFooter></DialogContent></Dialog></>;
 }

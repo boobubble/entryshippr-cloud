@@ -1,10 +1,16 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { listPublishedPosts } from "@/lib/blog.functions";
+import { LatestPosts } from "@/components/blog/LatestPosts";
+import { queryOptions, useSuspenseQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { PLANS, JOINING_FEE, inr } from "@/lib/supabase";
 import { FileSpreadsheet, Receipt, Users, Truck, ShieldCheck, Gauge } from "lucide-react";
 
+const latestQuery = queryOptions({ queryKey: ["latest-posts"], queryFn: () => listPublishedPosts({ data: { page: 0, limit: 4 } }) });
 export const Route = createFileRoute("/")({
+  loader: ({ context }) => context.queryClient.ensureQueryData(latestQuery),
   head: () => ({
+    links: [{ rel: "canonical", href: "https://entryshippr-cloud.lovable.app/" }],
     meta: [
       { title: "EntrySetu — Your Business Entry & Billing Bridge" },
       { name: "description", content: "Courier entry, Excel import, rate cards and GST/Non-GST invoicing in one place. Start a 5-day free trial." },
@@ -27,6 +33,7 @@ const features = [
 ];
 
 function Landing() {
+  const { data: latest } = useSuspenseQuery(latestQuery);
   return (
     <div className="min-h-screen bg-background">
       <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
@@ -70,6 +77,7 @@ function Landing() {
           </div>
         </div>
       </section>
+      <LatestPosts posts={latest.posts} />
       <footer className="py-8 text-center text-sm text-muted-foreground">© {new Date().getFullYear()} EntrySetu</footer>
     </div>
   );
