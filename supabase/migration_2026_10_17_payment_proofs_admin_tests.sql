@@ -8,6 +8,9 @@ SELECT pg_temp.assert_true(NOT has_table_privilege('authenticated','public.payme
 SELECT pg_temp.assert_true(NOT has_function_privilege('authenticated','public.activate_payment(text,text,bigint)','EXECUTE'),'gateway activation service only');
 SELECT pg_temp.assert_true(NOT has_function_privilege('anon','public.review_manual_payment(uuid,text,text)','EXECUTE'),'anonymous review denied');
 SELECT pg_temp.assert_true(has_function_privilege('authenticated','public.review_manual_payment(uuid,text,text)','EXECUTE'),'signed-in review callable with internal admin check');
+SELECT pg_temp.assert_true(NOT has_table_privilege('service_role','public.subscription_audit','INSERT'),'service role cannot forge audit');
+SELECT pg_temp.assert_true(NOT has_table_privilege('authenticated','public.subscription_audit','INSERT'),'seller cannot forge audit');
+SELECT pg_temp.assert_true(NOT has_function_privilege('authenticated','public.complete_manual_payment(uuid,uuid)','EXECUTE'),'completion service only');
 SELECT pg_temp.assert_true(NOT has_table_privilege('service_role','public.subscription_audit','UPDATE'),'service role audit update grant denied');
 INSERT INTO auth.users(id,email) VALUES('a7100000-0000-4000-8000-000000000001','proof-test-a@example.invalid'),('a7100000-0000-4000-8000-000000000002','proof-test-b@example.invalid'),('a7100000-0000-4000-8000-000000000003','proof-test-admin@example.invalid');
 INSERT INTO public.profiles(id,email) VALUES('a7100000-0000-4000-8000-000000000001','proof-test-a@example.invalid'),('a7100000-0000-4000-8000-000000000002','proof-test-b@example.invalid'),('a7100000-0000-4000-8000-000000000003','proof-test-admin@example.invalid') ON CONFLICT(id) DO NOTHING;
@@ -15,24 +18,28 @@ INSERT INTO public.user_roles(user_id,role) VALUES('a7100000-0000-4000-8000-0000
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claims','{"sub":"a7100000-0000-4000-8000-000000000001","role":"authenticated"}',true);
 CREATE TEMP TABLE proof_test_result AS SELECT public.begin_manual_payment('standard','UTR-TEST-1','image/png',20,'a7200000-0000-4000-8000-000000000001') AS value;
-SELECT pg_temp.assert_true((SELECT count(*)=1 FROM public.payment_submissions),'owner reads own pending submission');
+SELECT pg_temp.assert_true((SELECT count(*)=1 FROM public.payment_submissions WHERE owner_id='a7100000-0000-4000-8000-000000000001'),'owner reads own pending submission');
 SELECT pg_temp.assert_true((SELECT amount_paise=420000 AND includes_joining_fee AND channel='manual' AND status='created' FROM public.payments WHERE owner_id=auth.uid()),'Standard 1200 plus joining fee 3000, no activation');
 SELECT pg_temp.assert_true((SELECT plan IS NULL AND NOT joining_fee_paid FROM public.profiles WHERE id=auth.uid()),'upload initiation does not grant access');
 SELECT pg_temp.assert_true(public.begin_manual_payment('standard','UTR-TEST-1','image/png',20,'a7200000-0000-4000-8000-000000000001')->>'id'=(SELECT value->>'id' FROM proof_test_result),'begin retry is idempotent');
-DO $$ BEGIN PERFORM public.complete_manual_payment((SELECT (value->>'id')::uuid FROM proof_test_result)); RAISE EXCEPTION 'FAIL: missing object accepted'; EXCEPTION WHEN OTHERS THEN IF SQLERRM NOT LIKE '%screenshot upload is missing%' THEN RAISE; END IF; END $$;
+DO $$ BEGIN PERFORM public.complete_manual_payment((SELECT (value->>'id')::uuid FROM proof_test_result),'a7100000-0000-4000-8000-000000000001'); RAISE EXCEPTION 'FAIL: seller completed unverified proof'; EXCEPTION WHEN insufficient_privilege THEN NULL; END $$;
 DO $$ BEGIN PERFORM public.review_manual_payment((SELECT (value->>'id')::uuid FROM proof_test_result),'approved','not admin'); RAISE EXCEPTION 'FAIL: seller reviewed'; EXCEPTION WHEN insufficient_privilege THEN NULL; END $$;
 SELECT set_config('request.jwt.claims','{"sub":"a7100000-0000-4000-8000-000000000002","role":"authenticated"}',true);
-SELECT pg_temp.assert_true((SELECT count(*)=0 FROM public.payment_submissions),'tenant B cannot see A proof');
+SELECT pg_temp.assert_true((SELECT count(*)=0 FROM public.payment_submissions WHERE owner_id='a7100000-0000-4000-8000-000000000001'),'tenant B cannot see A proof');
 SELECT public.begin_manual_payment('unlimited','UTR-TEST-2','image/webp',20,'a7200000-0000-4000-8000-000000000002');
 SELECT pg_temp.assert_true((SELECT amount_paise=480000 FROM public.payments WHERE owner_id=auth.uid()),'Unlimited 1800 plus joining fee 3000');
 RESET ROLE;
+GRANT SELECT ON proof_test_result TO service_role;
+DO $$ BEGIN PERFORM public.complete_manual_payment((SELECT (value->>'id')::uuid FROM proof_test_result),'a7100000-0000-4000-8000-000000000001'); RAISE EXCEPTION 'FAIL: missing object accepted'; EXCEPTION WHEN OTHERS THEN IF SQLERRM NOT LIKE '%screenshot upload is missing%' THEN RAISE; END IF; END $$;
 -- Synthetic object metadata only, no bucket creation. Rollback removes it.
 -- If payment-proofs is not yet provisioned, skip this section by NOT running the tests until separately approved storage setup exists.
 INSERT INTO storage.objects(bucket_id,name,metadata) SELECT 'payment-proofs',proof_path,jsonb_build_object('mimetype',mime,'size',byte_size) FROM public.payment_submissions WHERE owner_id='a7100000-0000-4000-8000-000000000001';
+SET LOCAL ROLE service_role;
+SELECT public.complete_manual_payment((SELECT (value->>'id')::uuid FROM proof_test_result),'a7100000-0000-4000-8000-000000000001');
+SELECT public.complete_manual_payment((SELECT (value->>'id')::uuid FROM proof_test_result),'a7100000-0000-4000-8000-000000000001');
+RESET ROLE;
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claims','{"sub":"a7100000-0000-4000-8000-000000000001","role":"authenticated"}',true);
-SELECT public.complete_manual_payment((SELECT (value->>'id')::uuid FROM proof_test_result));
-SELECT public.complete_manual_payment((SELECT (value->>'id')::uuid FROM proof_test_result));
 SELECT pg_temp.assert_true((SELECT plan IS NULL FROM public.profiles WHERE id=auth.uid()),'completion still does not activate');
 SELECT set_config('request.jwt.claims','{"sub":"a7100000-0000-4000-8000-000000000003","role":"authenticated"}',true);
 SELECT public.review_manual_payment((SELECT (value->>'id')::uuid FROM proof_test_result),'approved','Verified test evidence');

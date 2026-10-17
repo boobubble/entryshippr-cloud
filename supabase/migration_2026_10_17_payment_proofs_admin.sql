@@ -58,7 +58,7 @@ CREATE FUNCTION public.begin_manual_payment(p_plan public.plan_kind,p_reference 
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
 DECLARE u uuid:=auth.uid(); profile public.profiles; existing public.payment_submissions; sid uuid:=gen_random_uuid(); pid uuid; path text; amount bigint; fee boolean;
 BEGIN
- IF u IS NULL OR auth.role()<>'authenticated' THEN RAISE EXCEPTION 'Sign in required' USING ERRCODE='42501'; END IF;
+ IF u IS NULL OR auth.role() IS DISTINCT FROM 'authenticated' THEN RAISE EXCEPTION 'Sign in required' USING ERRCODE='42501'; END IF;
  IF p_plan IS NULL OR p_request_id IS NULL OR p_reference IS NULL OR length(btrim(p_reference)) NOT BETWEEN 3 AND 100 OR p_reference ~ '[[:cntrl:]]' OR p_mime IS NULL OR p_mime NOT IN ('image/png','image/jpeg','image/webp') OR p_size IS NULL OR p_size NOT BETWEEN 12 AND 5242880 THEN RAISE EXCEPTION 'Invalid submission' USING ERRCODE='23514'; END IF;
  SELECT * INTO profile FROM public.profiles WHERE id=u FOR UPDATE;
  IF NOT FOUND THEN RAISE EXCEPTION 'Profile not found'; END IF;
@@ -88,7 +88,7 @@ END $$;
 CREATE FUNCTION public.review_manual_payment(p_id uuid,p_decision text,p_reason text) RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
 DECLARE s public.payment_submissions; pay public.payments; profile public.profiles; expected bigint;
 BEGIN
- IF auth.role()<>'authenticated' OR NOT public.is_admin() THEN RAISE EXCEPTION 'Admins only' USING ERRCODE='42501'; END IF;
+ IF auth.role() IS DISTINCT FROM 'authenticated' OR public.is_admin() IS DISTINCT FROM true THEN RAISE EXCEPTION 'Admins only' USING ERRCODE='42501'; END IF;
  IF p_decision IS NULL OR p_decision NOT IN ('approved','rejected') OR p_reason IS NULL OR length(btrim(p_reason)) NOT BETWEEN 3 AND 1000 THEN RAISE EXCEPTION 'Decision and reason required'; END IF;
  SELECT * INTO s FROM public.payment_submissions WHERE id=p_id FOR UPDATE;
  IF NOT FOUND OR s.submitted_at IS NULL THEN RAISE EXCEPTION 'Completed submission not found'; END IF;
@@ -111,7 +111,7 @@ BEGIN
 END $$;
 CREATE FUNCTION public.admin_set_access_audited(p_user_id uuid,p_action text,p_plan public.plan_kind,p_reason text) RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
 BEGIN
- IF auth.role()<>'authenticated' OR NOT public.is_admin() THEN RAISE EXCEPTION 'Admins only' USING ERRCODE='42501'; END IF;
+ IF auth.role() IS DISTINCT FROM 'authenticated' OR public.is_admin() IS DISTINCT FROM true THEN RAISE EXCEPTION 'Admins only' USING ERRCODE='42501'; END IF;
  IF p_reason IS NULL OR length(btrim(p_reason)) NOT BETWEEN 3 AND 1000 THEN RAISE EXCEPTION 'Reason required'; END IF;
  PERFORM 1 FROM public.profiles WHERE id=p_user_id FOR UPDATE;
  IF NOT FOUND THEN RAISE EXCEPTION 'Profile not found'; END IF;

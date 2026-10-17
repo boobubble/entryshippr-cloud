@@ -11,7 +11,7 @@ BEGIN
   IF jsonb_typeof(n->'text') IS DISTINCT FROM 'string' OR length(n->>'text')>10000 OR n ? 'content' OR n ? 'attrs' OR parent NOT IN ('paragraph','heading') THEN RETURN false; END IF;
  ELSE IF n ? 'text' OR n ? 'marks' THEN RETURN false; END IF; END IF;
  IF n ? 'attrs' THEN
-  IF typ<>'heading' OR jsonb_typeof(n->'attrs') IS DISTINCT FROM 'object' OR (n->'attrs'->>'level') NOT IN ('2','3') OR NOT (n->'attrs' ? 'level') THEN RETURN false; END IF;
+  IF typ<>'heading' OR jsonb_typeof(n->'attrs') IS DISTINCT FROM 'object' OR jsonb_typeof(n->'attrs'->'level') IS DISTINCT FROM 'number' OR coalesce(n->'attrs'->>'level','') NOT IN ('2','3') OR NOT (n->'attrs' ? 'level') THEN RETURN false; END IF;
   FOR k IN SELECT jsonb_object_keys(n->'attrs') LOOP IF k<>'level' THEN RETURN false; END IF; END LOOP;
  END IF;
  IF typ='heading' AND NOT(n ? 'attrs') THEN RETURN false; END IF;
@@ -36,7 +36,7 @@ BEGIN
  RETURN true;
 EXCEPTION WHEN OTHERS THEN RETURN false;
 END $$;
-CREATE FUNCTION public.blog_document_valid(n jsonb) RETURNS boolean LANGUAGE sql IMMUTABLE SECURITY DEFINER SET search_path='' AS $$ SELECT n IS NOT NULL AND octet_length(n::text)<=100000 AND jsonb_array_length(jsonb_path_query_array(n,'$.** ? (@.type != null)'))<=2000 AND entrysetu_private.blog_node_valid(n) $$;
+CREATE FUNCTION public.blog_document_valid(n jsonb) RETURNS boolean LANGUAGE sql IMMUTABLE SECURITY DEFINER SET search_path='' AS $$ SELECT n IS NOT NULL AND octet_length(n::text)<=100000 AND jsonb_array_length(jsonb_path_query_array(n,'strict $.** ? (@.type != null)'))<=2000 AND entrysetu_private.blog_node_valid(n) $$;
 REVOKE ALL ON FUNCTION public.blog_document_valid(jsonb) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.blog_document_valid(jsonb) TO anon,authenticated,service_role;
 CREATE TABLE public.blog_categories(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),name text NOT NULL UNIQUE CHECK(length(btrim(name)) BETWEEN 1 AND 100));
@@ -88,7 +88,7 @@ CREATE TRIGGER blog_stamp BEFORE INSERT OR UPDATE ON public.blog_posts FOR EACH 
 CREATE FUNCTION public.save_blog_post(p_post jsonb) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
 DECLARE pid uuid; tag jsonb;
 BEGIN
- IF auth.role()<>'authenticated' OR NOT public.is_admin() THEN RAISE EXCEPTION 'Admins only' USING ERRCODE='42501'; END IF;
+ IF auth.role() IS DISTINCT FROM 'authenticated' OR public.is_admin() IS DISTINCT FROM true THEN RAISE EXCEPTION 'Admins only' USING ERRCODE='42501'; END IF;
  pid:=(p_post->>'id')::uuid;
  IF jsonb_typeof(p_post->'tags') IS DISTINCT FROM 'array' OR jsonb_array_length(p_post->'tags')>20 THEN RAISE EXCEPTION 'Invalid tags'; END IF;
  INSERT INTO public.blog_posts(id,author_id,title,slug,excerpt,content,status,category_id,image_alt,seo_title,seo_description)
