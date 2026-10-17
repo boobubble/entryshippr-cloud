@@ -1,4 +1,5 @@
 # Roadmap
+- [ ] Essential payment-proof code fixes: structural validation, truthful history errors, focused regressions; no SQL/Storage/logging changes
 - [x] Payments, Super Admin and Blog CMS: inspected existing files/schema and prepared DEV-only change/security plan
 - [x] Payment proof submission and Super Admin reviews — code implemented; reason-required audited actions, private proofs and paginated history
 - [x] Four DEV payment/admin and blog migration/test files — generated for review only; no SQL executed and no buckets provisioned
