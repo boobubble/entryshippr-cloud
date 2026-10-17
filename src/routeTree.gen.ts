@@ -24,6 +24,8 @@ import { Route as AppInvoicesRouteImport } from './routes/_app/invoices'
 import { Route as AppRateCardsRouteImport } from './routes/_app/rate-cards'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppShipmentsRouteImport } from './routes/_app/shipments'
+import { Route as BlogIndexRouteImport } from './routes/blog.index'
+import { Route as BlogSlugRouteImport } from './routes/blog.$slug'
 import { Route as AppInvoicesIndexRouteImport } from './routes/_app/invoices.index'
 import { Route as AppInvoicesIdRouteImport } from './routes/_app/invoices.$id'
 import { Route as ApiPublicCitySyncRouteImport } from './routes/api/public/city-sync'
@@ -104,6 +106,16 @@ const AppShipmentsRoute = AppShipmentsRouteImport.update({
   path: '/shipments',
   getParentRoute: () => AppRouteRoute,
 } as any)
+const BlogIndexRoute = BlogIndexRouteImport.update({
+  id: '/blog/',
+  path: '/blog/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BlogSlugRoute = BlogSlugRouteImport.update({
+  id: '/blog/$slug',
+  path: '/blog/$slug',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AppInvoicesIndexRoute = AppInvoicesIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -146,6 +158,8 @@ export interface FileRoutesByFullPath {
   '/rate-cards': typeof AppRateCardsRoute
   '/settings': typeof AppSettingsRoute
   '/shipments': typeof AppShipmentsRoute
+  '/blog/$slug': typeof BlogSlugRoute
+  '/blog/': typeof BlogIndexRoute
   '/invoices/$id': typeof AppInvoicesIdRoute
   '/api/public/city-sync': typeof ApiPublicCitySyncRoute
   '/api/public/razorpay-webhook': typeof ApiPublicRazorpayWebhookRoute
@@ -166,6 +180,8 @@ export interface FileRoutesByTo {
   '/rate-cards': typeof AppRateCardsRoute
   '/settings': typeof AppSettingsRoute
   '/shipments': typeof AppShipmentsRoute
+  '/blog/$slug': typeof BlogSlugRoute
+  '/blog': typeof BlogIndexRoute
   '/invoices/$id': typeof AppInvoicesIdRoute
   '/api/public/city-sync': typeof ApiPublicCitySyncRoute
   '/api/public/razorpay-webhook': typeof ApiPublicRazorpayWebhookRoute
@@ -189,6 +205,8 @@ export interface FileRoutesById {
   '/_app/rate-cards': typeof AppRateCardsRoute
   '/_app/settings': typeof AppSettingsRoute
   '/_app/shipments': typeof AppShipmentsRoute
+  '/blog/$slug': typeof BlogSlugRoute
+  '/blog/': typeof BlogIndexRoute
   '/_app/invoices/$id': typeof AppInvoicesIdRoute
   '/api/public/city-sync': typeof ApiPublicCitySyncRoute
   '/api/public/razorpay-webhook': typeof ApiPublicRazorpayWebhookRoute
@@ -212,6 +230,8 @@ export interface FileRouteTypes {
     | '/rate-cards'
     | '/settings'
     | '/shipments'
+    | '/blog/$slug'
+    | '/blog/'
     | '/invoices/$id'
     | '/api/public/city-sync'
     | '/api/public/razorpay-webhook'
@@ -232,6 +252,8 @@ export interface FileRouteTypes {
     | '/rate-cards'
     | '/settings'
     | '/shipments'
+    | '/blog/$slug'
+    | '/blog'
     | '/invoices/$id'
     | '/api/public/city-sync'
     | '/api/public/razorpay-webhook'
@@ -254,6 +276,8 @@ export interface FileRouteTypes {
     | '/_app/rate-cards'
     | '/_app/settings'
     | '/_app/shipments'
+    | '/blog/$slug'
+    | '/blog/'
     | '/_app/invoices/$id'
     | '/api/public/city-sync'
     | '/api/public/razorpay-webhook'
@@ -266,6 +290,8 @@ export interface RootRouteChildren {
   AppRouteRoute: typeof AppRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
+  BlogSlugRoute: typeof BlogSlugRoute
+  BlogIndexRoute: typeof BlogIndexRoute
   ApiPublicCitySyncRoute: typeof ApiPublicCitySyncRoute
   ApiPublicRazorpayWebhookRoute: typeof ApiPublicRazorpayWebhookRoute
 }
@@ -377,6 +403,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppShipmentsRouteImport
       parentRoute: typeof AppRouteRoute
     }
+    '/blog/': {
+      id: '/blog/'
+      path: '/blog'
+      fullPath: '/blog/'
+      preLoaderRoute: typeof BlogIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/blog/$slug': {
+      id: '/blog/$slug'
+      path: '/blog/$slug'
+      fullPath: '/blog/$slug'
+      preLoaderRoute: typeof BlogSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_app/invoices/': {
       id: '/_app/invoices/'
       path: '/'
@@ -468,6 +508,8 @@ const rootRouteChildren: RootRouteChildren = {
   AppRouteRoute: AppRouteRouteWithChildren,
   AuthRoute: AuthRoute,
   ResetPasswordRoute: ResetPasswordRoute,
+  BlogSlugRoute: BlogSlugRoute,
+  BlogIndexRoute: BlogIndexRoute,
   ApiPublicCitySyncRoute: ApiPublicCitySyncRoute,
   ApiPublicRazorpayWebhookRoute: ApiPublicRazorpayWebhookRoute,
 }
