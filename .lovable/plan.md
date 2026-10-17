@@ -2,9 +2,9 @@
 
 ## Review boundary
 
-This report is based on local source and repository SQL, not a live DEV database inspection. No application code, SQL files, database records, environment variables or production settings have changed. Only the task roadmap and requirements memory were updated. Nothing was published.
+Source/SQL inspection only; live DEV schema and account access are unverified. Only roadmap/requirements memory changed; no app code, SQL, records, environment or production changes, and no publication.
 
-Approve this plan to begin small implementation steps and generate additive DEV SQL plus rollback-only tests. **Plan approval is not permission to execute SQL.** Required schema/storage setup must be reviewed and explicitly approved separately; the existing external Supabase remains in use, Lovable Cloud stays off, and production is untouched.
+Approve the plan to start small code steps and generate DEV SQL/tests for review. **This does not authorize SQL execution or storage provisioning.** External Supabase only; Cloud off; production untouched.
 
 ## Existing files/schema to reuse
 
@@ -43,7 +43,7 @@ Provision through the external Storage API only after separate approval; do not 
 
 ### Blog schema
 
-Add `blog_posts`, `blog_categories`, `blog_tags`, `blog_post_tags`. Posts contain title, unique normalized slug, excerpt, structured rich text, draft/published state, category, featured-image path/alt text, SEO title/description, author and content/publication timestamps. Enforce bounded fields, valid slugs, taxonomy FKs and valid publication state. Existing admins manage posts and taxonomy; ordinary users/anonymous visitors read only safe published content. Draft records, associations and images stay private. No sample posts are inserted.
+Add `blog_posts`, `blog_categories`, `blog_tags`, `blog_post_tags`: title, unique slug, excerpt, validated rich-text JSON, draft/published status, category/tags, image/alt text, SEO fields, author and timestamps. Enforce field bounds, FKs and publication consistency. Admin writes only; public reads only published content. Draft associations/images stay private. No sample posts.
 
 ## Step 2 — Payment proofs and admin UI
 
@@ -81,15 +81,12 @@ Proof access is payment-owner/admin checked, short-lived and private/no-store. V
 
 New routes get individual title/description/OG/Twitter metadata. Article canonicals use `https://entryshippr-cloud.lovable.app/blog/<slug>`. Add `src/routes/api/public/blog-images.$id.ts` for published-post-aware delivery of private featured images, including share-sized renditions prepared during upload. Draft images never become public. Share images match displayed images; CMS previews are noindex/no-store. Existing `entrysetu.in` remains untouched.
 
-## Verification
+## Verification and blockers
 
-Add focused tests:
-- `src/test/payment-proofs.test.ts`: allowed formats/5 MB cap, malformed files and references; pending submission cannot activate access.
-- `src/test/admin-access.test.ts`: ordinary seller denied privileged endpoints, bounded pagination and validated actions.
-- `src/test/blog.test.ts`: forbidden rich-text nodes/URLs, publication visibility, slug validation and latest-four ordering.
-- `src/test/sitemap.test.ts`: private/draft exclusions, multiple data batches and later-batch errors.
-- Rollback-only SQL tests: grants/RLS, cross-seller proof denial, unprivileged activation denial, immutable audit, approval concurrency/idempotency, subscription arithmetic and public draft exclusion. Run locally against a throwaway database where possible; never execute DEV SQL without approval.
+Add `src/test/payment-proofs.test.ts`, `src/test/admin-access.test.ts`, `src/test/blog.test.ts`, `src/test/sitemap.test.ts` for upload limits/signatures, authorization, unsafe content/URLs, publication visibility, latest-four ordering, pagination and sitemap batch failures.
 
-Run existing shipment/rate/import/invoice/AWB tests for regressions. Check DEV Preview uploads, pending/rejected/approved review, seller detail and CMS publication/read-back only when real seller/admin access and schema are available. Stand-in or intercepted-data browser checks are labelled as such, not authenticated verification.
+Rollback-only SQL tests cover grants/RLS, cross-seller proof denial, unprivileged activation denial, immutable audit, approval idempotency/concurrency, subscription arithmetic and draft exclusion. Use a throwaway local database where possible; no DEV SQL without approval. Run existing shipment/rate/import/invoice/AWB regression tests.
 
-**Current blockers:** no available external-account session; deployed DEV schema/grants, buckets, secret configuration and Razorpay Test Mode are not verified. Real seller/admin saves and database isolation remain BLOCKED until access and reviewed setup are available. No tests have been run during this inspection. Nothing is published or deployed under this plan.
+Real Preview verification must cover seller upload/read-back, admin rejection/approval, access changes and CMS publish/public read-back. Intercepted/stand-in checks are not real-account verification.
+
+**BLOCKED:** external-account session unavailable; deployed schema/grants, buckets, secrets and Razorpay Test Mode unverified. No tests ran during inspection. Implementation awaits plan review; SQL/storage setup needs separate approval. Nothing published/deployed.
