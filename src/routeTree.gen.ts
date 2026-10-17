@@ -33,6 +33,7 @@ import { Route as ApiPublicCitySyncRouteImport } from './routes/api/public/city-
 import { Route as ApiPublicRazorpayWebhookRouteImport } from './routes/api/public/razorpay-webhook'
 import { Route as AppAdminPostsIndexRouteImport } from './routes/_app/admin_.posts.index'
 import { Route as AppAdminPostsIdRouteImport } from './routes/_app/admin_.posts.$id'
+import { Route as AppAdminSellersIdRouteImport } from './routes/_app/admin_.sellers.$id'
 import { Route as AppInvoicesEditIdRouteImport } from './routes/_app/invoices.edit.$id'
 import { Route as ApiPublicBlogImagesIdRouteImport } from './routes/api/public/blog-images.$id'
 
@@ -156,6 +157,11 @@ const AppAdminPostsIdRoute = AppAdminPostsIdRouteImport.update({
   path: '/admin/posts/$id',
   getParentRoute: () => AppRouteRoute,
 } as any)
+const AppAdminSellersIdRoute = AppAdminSellersIdRouteImport.update({
+  id: '/admin_/sellers/$id',
+  path: '/admin/sellers/$id',
+  getParentRoute: () => AppRouteRoute,
+} as any)
 const AppInvoicesEditIdRoute = AppInvoicesEditIdRouteImport.update({
   id: '/edit/$id',
   path: '/edit/$id',
@@ -190,6 +196,7 @@ export interface FileRoutesByFullPath {
   '/api/public/razorpay-webhook': typeof ApiPublicRazorpayWebhookRoute
   '/invoices/': typeof AppInvoicesIndexRoute
   '/admin/posts/$id': typeof AppAdminPostsIdRoute
+  '/admin/sellers/$id': typeof AppAdminSellersIdRoute
   '/invoices/edit/$id': typeof AppInvoicesEditIdRoute
   '/api/public/blog-images/$id': typeof ApiPublicBlogImagesIdRoute
   '/admin/posts/': typeof AppAdminPostsIndexRoute
@@ -216,6 +223,7 @@ export interface FileRoutesByTo {
   '/api/public/razorpay-webhook': typeof ApiPublicRazorpayWebhookRoute
   '/invoices': typeof AppInvoicesIndexRoute
   '/admin/posts/$id': typeof AppAdminPostsIdRoute
+  '/admin/sellers/$id': typeof AppAdminSellersIdRoute
   '/invoices/edit/$id': typeof AppInvoicesEditIdRoute
   '/api/public/blog-images/$id': typeof ApiPublicBlogImagesIdRoute
   '/admin/posts': typeof AppAdminPostsIndexRoute
@@ -245,6 +253,7 @@ export interface FileRoutesById {
   '/api/public/razorpay-webhook': typeof ApiPublicRazorpayWebhookRoute
   '/_app/invoices/': typeof AppInvoicesIndexRoute
   '/_app/admin_/posts/$id': typeof AppAdminPostsIdRoute
+  '/_app/admin_/sellers/$id': typeof AppAdminSellersIdRoute
   '/_app/invoices/edit/$id': typeof AppInvoicesEditIdRoute
   '/api/public/blog-images/$id': typeof ApiPublicBlogImagesIdRoute
   '/_app/admin_/posts/': typeof AppAdminPostsIndexRoute
@@ -274,6 +283,7 @@ export interface FileRouteTypes {
     | '/api/public/razorpay-webhook'
     | '/invoices/'
     | '/admin/posts/$id'
+    | '/admin/sellers/$id'
     | '/invoices/edit/$id'
     | '/api/public/blog-images/$id'
     | '/admin/posts/'
@@ -300,6 +310,7 @@ export interface FileRouteTypes {
     | '/api/public/razorpay-webhook'
     | '/invoices'
     | '/admin/posts/$id'
+    | '/admin/sellers/$id'
     | '/invoices/edit/$id'
     | '/api/public/blog-images/$id'
     | '/admin/posts'
@@ -328,6 +339,7 @@ export interface FileRouteTypes {
     | '/api/public/razorpay-webhook'
     | '/_app/invoices/'
     | '/_app/admin_/posts/$id'
+    | '/_app/admin_/sellers/$id'
     | '/_app/invoices/edit/$id'
     | '/api/public/blog-images/$id'
     | '/_app/admin_/posts/'
@@ -516,6 +528,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAdminPostsIdRouteImport
       parentRoute: typeof AppRouteRoute
     }
+    '/_app/admin_/sellers/$id': {
+      id: '/_app/admin_/sellers/$id'
+      path: '/admin/sellers/$id'
+      fullPath: '/admin/sellers/$id'
+      preLoaderRoute: typeof AppAdminSellersIdRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
     '/_app/invoices/edit/$id': {
       id: '/_app/invoices/edit/$id'
       path: '/edit/$id'
@@ -562,6 +581,7 @@ interface AppRouteRouteChildren {
   AppSettingsRoute: typeof AppSettingsRoute
   AppShipmentsRoute: typeof AppShipmentsRoute
   AppAdminPostsIdRoute: typeof AppAdminPostsIdRoute
+  AppAdminSellersIdRoute: typeof AppAdminSellersIdRoute
   AppAdminPostsIndexRoute: typeof AppAdminPostsIndexRoute
 }
 
@@ -578,6 +598,7 @@ const AppRouteRouteChildren: AppRouteRouteChildren = {
   AppSettingsRoute: AppSettingsRoute,
   AppShipmentsRoute: AppShipmentsRoute,
   AppAdminPostsIdRoute: AppAdminPostsIdRoute,
+  AppAdminSellersIdRoute: AppAdminSellersIdRoute,
   AppAdminPostsIndexRoute: AppAdminPostsIndexRoute,
 }
 
