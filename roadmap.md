@@ -1,4 +1,6 @@
 # Roadmap
+- [x] Payments, Super Admin and Blog CMS: inspected existing files/schema and prepared DEV-only change/security plan
+- [ ] Payments, Super Admin and Blog CMS implementation — blocked pending plan review, separate required SQL/storage approval and real-account verification access
 - [x] Excel import: single zone-assignment popup for unmapped/ambiguous cities
 - [x] Uppercase names + autocomplete
 - [x] Duplicate client handling (explicit choice, friendly 23505)
