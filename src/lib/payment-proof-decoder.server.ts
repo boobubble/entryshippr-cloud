@@ -5,7 +5,7 @@ import { validatePaymentProofBytes } from './payment-proof-validation';
  * Synchronous decode/free means no overlapping decodes within this isolate. */
 export async function decodePaymentProof(bytes: Uint8Array, type: string) {
   const expected = validatePaymentProofBytes(bytes, type);
-  const { PhotonImage } = await import('@cf-wasm/photon');
+  const { PhotonImage } = await import('@cf-wasm/photon').catch(() => { throw new Error('Screenshot validation is temporarily unavailable.'); });
   let image: InstanceType<typeof PhotonImage> | undefined;
   const originalError = console.error;
   try {

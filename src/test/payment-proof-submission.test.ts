@@ -32,6 +32,24 @@ describe('Real submission orchestration with local decoder and mocked DEV adapte
     vi.mocked(io.begin).mockResolvedValue({ data: { ...row, proof_path: `other/${id}.png` }, error: null });
     await expect(processPaymentProof(input(), io)).rejects.toThrow('ownership'); expect(io.upload).not.toHaveBeenCalled();
   });
+  it('does not upload or complete after a failed begin operation', async () => {
+    vi.mocked(io.begin).mockResolvedValue({data:null,error:{code:'PGRST202',message:'private details'}});
+    await expect(processPaymentProof(input(),io)).rejects.toMatchObject({category:'setup'});
+    expect(io.upload).not.toHaveBeenCalled(); expect(io.complete).not.toHaveBeenCalled();
+  });
+  it('never completes when validation of downloaded bytes fails', async () => {
+    vi.mocked(io.decode).mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('pixels invalid'));
+    await expect(processPaymentProof(input(),io)).rejects.toThrow('pixels invalid'); expect(io.complete).not.toHaveBeenCalled();
+  });
+  it('rejects stored size mismatch without reading or completing', async () => {
+    const stored = new Blob([new Uint8Array(12)]), read = vi.spyOn(stored,'arrayBuffer');
+    vi.mocked(io.download).mockResolvedValue({data:stored,error:null});
+    await expect(processPaymentProof(input(),io)).rejects.toThrow('verified'); expect(read).not.toHaveBeenCalled(); expect(io.complete).not.toHaveBeenCalled();
+  });
+  it('rejects oversized declared pixels before beginning a submission', async () => {
+    vi.mocked(io.decode).mockRejectedValueOnce(new Error('Screenshot exceeds the safe image dimensions or pixel limit.'));
+    await expect(processPaymentProof(input(),io)).rejects.toThrow('pixel limit'); expect(io.begin).not.toHaveBeenCalled(); expect(io.complete).not.toHaveBeenCalled();
+  });
   it.each(['upload', 'download', 'mismatch', 'completion'])('handles %s failure without false success', async stage => {
     if (stage === 'upload') vi.mocked(io.upload).mockResolvedValue({ error: { statusCode: '500', message: 'secret duplicate text' } });
     if (stage === 'download') vi.mocked(io.download).mockResolvedValue({ error: { message: 'private details' }, data: null });
