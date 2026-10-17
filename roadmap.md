@@ -12,4 +12,4 @@
 - [ ] AWB series + Manual charges SQL — awaiting user run in DEV
 - [ ] AWB series settings + Auto/Manual charges UI (blocked: waits for SQL run)
 - [ ] Service matrix SQL (DOX Standard/Fast; NON-DOX Surface/Air/Fast, Option A legacy) — awaiting user review/run in DEV
-- [ ] Service matrix app changes (blocked: waits for SQL run)
+- [ ] Service matrix app integration and tests — no SQL execution; DEV database compatibility and authenticated saves remain unverified
