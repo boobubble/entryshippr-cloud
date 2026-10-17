@@ -1,4 +1,5 @@
 # Roadmap
+- [ ] Essential follow-up: strict image headers/resource limits and runtime-compatible pixel decoding, submission failure/retry tests, sanitized provider errors/logs
 - [x] Essential payment-proof code fixes: dedicated structural checks, truthful history errors, admin paid-history refresh; 142 tests passed, preview build OK; real DEV upload/review remains blocked by external session/setup
 - [x] Payments, Super Admin and Blog CMS: inspected existing files/schema and prepared DEV-only change/security plan
 - [x] Payment proof submission and Super Admin reviews — code implemented; reason-required audited actions, private proofs and paginated history
