@@ -1,21 +1,27 @@
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "./supabase";
+import { providerError } from './provider-errors';
 export async function getUser(token: string): Promise<{ id: string; email: string }> {
   const r = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
     headers: { apikey: SUPABASE_PUBLISHABLE_KEY, Authorization: `Bearer ${token}` },
-  });
+  }).catch(() => { throw providerError({ status: 401 }); });
   if (!r.ok) throw new Error("Not signed in");
   return r.json();
 }
 
 export async function rest(path: string, init: RequestInit = {}) {
-  const key = process.env["EXT_SUPABASE_SECRET_KEY"]!;
+  const key = process.env["EXT_SUPABASE_SECRET_KEY"];
+  if (!key) throw providerError({}, 'Payment configuration');
   const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
     ...init,
     headers: { apikey: key, "Content-Type": "application/json", Prefer: "return=representation", ...(init.headers || {}) },
-  });
+  }).catch(() => { throw providerError({}, 'Database request'); });
   const text = await r.text();
-  if (!r.ok) throw new Error(`Database error: ${text}`);
-  return text ? JSON.parse(text) : null;
+  if (!r.ok) {
+    let code: string | undefined;
+    try { const body = JSON.parse(text); if (typeof body.code === 'string') code = body.code; } catch { /* Do not forward response bodies. */ }
+    throw providerError({ status: r.status, code }, 'Database request');
+  }
+  try { return text ? JSON.parse(text) : null; } catch { throw providerError({}, 'Database response'); }
 }
 
 export function rzpAuth() {

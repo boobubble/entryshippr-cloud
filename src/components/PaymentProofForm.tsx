@@ -4,7 +4,7 @@ import { useServerFn } from '@tanstack/react-start';
 import { toast } from 'sonner';
 import { supabase, accessToken, PLANS, inr } from '@/lib/supabase';
 import { errMsg } from '@/lib/hooks';
-import { validateReference } from '@/lib/image-validation';
+import { validateImageMeta, validateReference } from '@/lib/image-validation';
 import { validatePaymentProofBytes } from '@/lib/payment-proof-validation';
 import { paymentRows } from '@/lib/payment-errors';
 import { submitPaymentProof, paymentProofUrl } from '@/lib/payment-proofs.functions';
@@ -23,7 +23,7 @@ export function PaymentProofForm() {
     return paymentRows(r, 'Payment proof submissions');
   }});
   async function save(e:React.FormEvent){ e.preventDefault(); if(busy)return; setBusy(true);
-    try{ if(!file)throw new Error('Choose a payment screenshot.'); validateReference(reference); validatePaymentProofBytes(new Uint8Array(await file.arrayBuffer()),file.type);
+    try{ if(!file)throw new Error('Choose a payment screenshot.'); validateReference(reference); validateImageMeta(file.type,file.size); validatePaymentProofBytes(new Uint8Array(await file.arrayBuffer()),file.type);
       if(!request.current)request.current=crypto.randomUUID();
       const data=new FormData(); data.set('token',await accessToken()); data.set('plan',plan); data.set('reference',reference); data.set('requestId',request.current); data.set('file',file);
       await submit({data}); toast.success('Payment proof submitted for review.'); request.current=null;setReference('');setFile(null);if(input.current)input.current.value='';await qc.invalidateQueries({queryKey:['payment-submissions']});
