@@ -1,6 +1,7 @@
 import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
-import { validateImageBytes, validateReference } from './image-validation';
+import { validateReference } from './image-validation';
+import { validatePaymentProofBytes } from './payment-proof-validation';
 export const submitPaymentProof = createServerFn({ method: 'POST' })
   .inputValidator((data: FormData) => { if (!(data instanceof FormData)) throw new Error('Invalid upload.'); return data; })
   .handler(async ({ data }) => {
@@ -12,7 +13,8 @@ export const submitPaymentProof = createServerFn({ method: 'POST' })
     const file = data.get('file');
     if (!(file instanceof File)) throw new Error('Choose a payment screenshot.');
     if (file.size > 5 * 1024 * 1024) throw new Error('Image must be no larger than 5 MB.');
-    validateImageBytes(new Uint8Array(await file.arrayBuffer()), file.type);
+    const incoming = new Uint8Array(await file.arrayBuffer());
+    validatePaymentProofBytes(incoming, file.type);
     const started = await client.rpc('begin_manual_payment', { p_plan: plan, p_reference: reference, p_mime: file.type, p_size: file.size, p_request_id: requestId });
     dbError(started.error);
     const row = started.data as { id: string; proof_path: string; submitted_at: string | null };
@@ -24,8 +26,7 @@ export const submitPaymentProof = createServerFn({ method: 'POST' })
     const stored = await client.storage.from('payment-proofs').download(row.proof_path);
     if (stored.error || !stored.data || stored.data.size !== file.size) throw new Error('Stored screenshot could not be verified.');
     const storedBytes = new Uint8Array(await stored.data.arrayBuffer());
-    validateImageBytes(storedBytes, file.type);
-    const incoming = new Uint8Array(await file.arrayBuffer());
+    validatePaymentProofBytes(storedBytes, file.type);
     if (storedBytes.length !== incoming.length || storedBytes.some((v,i) => v !== incoming[i])) throw new Error('Retry screenshot differs from the original upload.');
     const key = process.env['EXT_SUPABASE_SECRET_KEY'];
     if (!key) throw new Error('Payment proof completion is not configured.');

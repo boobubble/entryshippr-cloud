@@ -4,7 +4,9 @@ import { useServerFn } from '@tanstack/react-start';
 import { toast } from 'sonner';
 import { supabase, accessToken, PLANS, inr } from '@/lib/supabase';
 import { errMsg } from '@/lib/hooks';
-import { validateImageBytes, validateReference } from '@/lib/image-validation';
+import { validateReference } from '@/lib/image-validation';
+import { validatePaymentProofBytes } from '@/lib/payment-proof-validation';
+import { paymentRows } from '@/lib/payment-errors';
 import { submitPaymentProof, paymentProofUrl } from '@/lib/payment-proofs.functions';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,10 +20,10 @@ export function PaymentProofForm() {
   const history=useQuery({queryKey:['payment-submissions'],retry:false,queryFn:async()=>{
     const user=await supabase.auth.getUser(); if(!user.data.user) throw new Error('Please sign in again.');
     const r=await supabase.from('payment_submissions').select('id,reference,status,reason,created_at,submitted_at,payments(plan,amount_paise)').eq('owner_id',user.data.user.id).not('submitted_at','is',null).order('created_at',{ascending:false}).limit(50);
-    if(r.error) throw new Error('Payment proof submissions are awaiting the reviewed DEV setup.'); return r.data;
+    return paymentRows(r, 'Payment proof submissions');
   }});
   async function save(e:React.FormEvent){ e.preventDefault(); if(busy)return; setBusy(true);
-    try{ if(!file)throw new Error('Choose a payment screenshot.'); validateReference(reference); validateImageBytes(new Uint8Array(await file.arrayBuffer()),file.type);
+    try{ if(!file)throw new Error('Choose a payment screenshot.'); validateReference(reference); validatePaymentProofBytes(new Uint8Array(await file.arrayBuffer()),file.type);
       if(!request.current)request.current=crypto.randomUUID();
       const data=new FormData(); data.set('token',await accessToken()); data.set('plan',plan); data.set('reference',reference); data.set('requestId',request.current); data.set('file',file);
       await submit({data}); toast.success('Payment proof submitted for review.'); request.current=null;setReference('');setFile(null);if(input.current)input.current.value='';await qc.invalidateQueries({queryKey:['payment-submissions']});
@@ -39,6 +41,6 @@ export function PaymentProofForm() {
     </form>
     {history.error&&<p role="alert" className="mt-3 text-sm text-destructive">{errMsg(history.error)}</p>}
     {history.isPending&&<p className="mt-4 text-sm text-muted-foreground">Loading submissions…</p>}
-    <div className="mt-4 overflow-x-auto"><table className="w-full text-sm"><thead className="bg-muted text-left"><tr>{['Date','Reference','Plan / amount','Status','Review reason','Proof'].map(h=><th className="p-3" key={h}>{h}</th>)}</tr></thead><tbody>{history.data?.map(r=>{const pay=Array.isArray(r.payments)?r.payments[0]:r.payments;return <tr key={r.id} className="border-b"><td className="p-3">{new Date(r.created_at).toLocaleDateString('en-IN')}</td><td className="p-3">{r.reference}</td><td className="p-3">{pay?.plan} · {inr(Number(pay?.amount_paise)/100)}</td><td className="p-3 capitalize">{r.status}</td><td className="p-3">{r.reason||'—'}</td><td className="p-3"><Button size="sm" variant="outline" onClick={()=>view(r.id)}>View</Button></td></tr>;})}</tbody></table>{history.data?.length===0&&<p className="p-4 text-sm text-muted-foreground">No submitted proofs.</p>}</div>
+    <div className="mt-4 overflow-x-auto"><table className="w-full text-sm"><thead className="bg-muted text-left"><tr>{['Date','Reference','Plan / amount','Status','Review reason','Proof'].map(h=><th className="p-3" key={h}>{h}</th>)}</tr></thead><tbody>{history.data?.map(r=>{const pay=Array.isArray(r.payments)?r.payments[0]:r.payments;return <tr key={r.id} className="border-b"><td className="p-3">{new Date(r.created_at).toLocaleDateString('en-IN')}</td><td className="p-3">{r.reference}</td><td className="p-3">{pay?.plan} · {inr(Number(pay?.amount_paise)/100)}</td><td className="p-3 capitalize">{r.status}</td><td className="p-3">{r.reason||'—'}</td><td className="p-3"><Button size="sm" variant="outline" onClick={()=>view(r.id)}>View</Button></td></tr>;})}</tbody></table>{history.isSuccess&&history.data?.length===0&&<p className="p-4 text-sm text-muted-foreground">No submitted proofs.</p>}</div>
   </section>;
 }
