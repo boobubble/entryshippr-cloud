@@ -6,20 +6,18 @@ This report is based on local source and repository SQL, not a live DEV database
 
 Approve this plan to begin small implementation steps and generate additive DEV SQL plus rollback-only tests. **Plan approval is not permission to execute SQL.** Required schema/storage setup must be reviewed and explicitly approved separately; the existing external Supabase remains in use, Lovable Cloud stays off, and production is untouched.
 
-## Existing functionality to reuse
+## Existing files/schema to reuse
 
-| Existing files / database objects | Reuse and current gaps |
-| --- | --- |
-| `src/routes/_app/billing.tsx` | Existing subscription/payment page with Razorpay checkout and paid-only history; no screenshot submission currently exists. Add manual proof submission here, alongside—not replacing—Razorpay. |
-| `src/lib/supabase.ts` | Existing external DEV connection and pricing: Standard ₹1,200/year, Standard Unlimited ₹1,800/year, first-purchase joining fee ₹3,000; retain the five-day trial and 50-active-client Standard limit. Do not introduce Basic/Pro monthly pricing. |
-| `src/routes/auth.tsx`, `src/lib/hooks.ts`, `src/routes/_app/route.tsx` | Existing accounts, profile/access state, signed-in page gate and admin navigation. Reuse existing `admin` role rather than create duplicate roles or account systems. |
-| `src/routes/_app/admin.tsx` | Existing seller list, paid history, grant/revoke/+5-day actions. Missing search, filters, pagination, seller detail, proof queue and action reasons/audit. |
-| `src/lib/billing.functions.ts`, `src/routes/api/public/razorpay-webhook.ts` | Existing authenticated billing/admin calls, signature/capture checks and webhook. Keep Razorpay Test Mode; separate manual review from verified gateway activation. |
-| `supabase/entrysetu_schema.sql`, `supabase/migration_2026_10_15_permission_hardening.sql` | Inspect/reuse `profiles`, `payments`, `user_roles`, `is_admin()`, `has_access()`, `activate_payment()`, `admin_set_access()` and their grants/RLS. Never rerun the base schema on an existing database. |
-| `src/routes/index.tsx`, `src/routes/__root.tsx`, `src/components/PageHead.tsx`, `public/robots.txt` | Existing homepage, document shell and metadata conventions. No blog schema/editor/routes/storage integration or sitemap implementation currently exists. |
-| `src/test/*`, `supabase/migration_2026_10_15_security_tests.sql` | Existing test setup and security patterns; add focused tests without changing shipment/invoice rules. |
+- `src/routes/_app/billing.tsx`: Razorpay checkout and paid-only history. No current screenshot submission form.
+- `src/lib/supabase.ts`: external DEV connection; retain Standard ₹1,200/year (50 active clients), Standard Unlimited ₹1,800/year, ₹3,000 first-purchase joining fee and five-day trial. No Basic/Pro monthly pricing.
+- `src/routes/auth.tsx`, `src/lib/hooks.ts`, `src/routes/_app/route.tsx`: existing accounts, profile/access state, signed-in gate and admin navigation.
+- `src/routes/_app/admin.tsx`: seller list, paid history and grant/revoke/+5-day actions; lacks pagination, filters, proof review and audit.
+- `src/lib/billing.functions.ts`, `src/routes/api/public/razorpay-webhook.ts`: authenticated billing/admin operations and verified Razorpay activation. Preserve Test Mode.
+- `supabase/entrysetu_schema.sql`, `supabase/migration_2026_10_15_permission_hardening.sql`: reuse `profiles`, `payments`, `user_roles`, `is_admin()`, `has_access()`, `activate_payment()`, `admin_set_access()` and existing grants/RLS. Never rerun the base schema on an existing database.
+- `src/routes/index.tsx`, `src/routes/__root.tsx`, `src/components/PageHead.tsx`, `public/robots.txt`: homepage, shell and metadata. No blog editor/schema/routes/storage integration or sitemap exists.
+- `src/test/*`, `supabase/migration_2026_10_15_security_tests.sql`: existing regression/security patterns.
 
-Subscriptions currently live as the seller's plan and expiry on `profiles`; purchase history lives in `payments`. Reuse this model and link proofs to an actual payment record and its seller/plan rather than invent a second subscription engine.
+Current subscription state lives on `profiles`; purchases live in `payments`. Reuse these rather than adding a duplicate subscription engine.
 
 ## Step 1 — DEV database and storage proposals
 
@@ -60,9 +58,9 @@ Add `blog_posts`, `blog_categories`, `blog_tags`, `blog_post_tags`. Posts contai
 - `src/lib/admin.functions.ts`, `src/lib/payment-proofs.functions.ts`: validate authenticated callers and database-backed admin roles before privileged work.
 - `src/lib/payment-proof-validation.ts`: shared file/reference validation.
 - `src/components/PaymentProofForm.tsx`, `src/components/admin/PaymentReview.tsx`: focused submission/review controls.
-- `src/routes/_app/admin_.sellers.$id.tsx`: separately rendered protected seller detail, plan/dates and paginated payment/audit history, without requiring the current `/admin` page to become a layout.
+- `src/routes/_app/admin_.sellers.$id.tsx`: protected seller detail with plan/dates and paginated payment/audit history. Un-nested filename preserves the existing `/admin` page.
 
-Owner proof access is verified against its payment. Admin review URLs are short-lived and responses are private/no-store. Validate actual image signatures server-side as well as MIME, extension and size; never trust uploaded metadata or client-supplied seller/amount/reviewer values.
+Proof access is payment-owner/admin checked, short-lived and private/no-store. Validate image signatures, MIME and size server-side; never trust seller/amount/reviewer fields from the browser.
 
 ## Step 3 — Blog editor, public articles and SEO
 
@@ -81,9 +79,9 @@ Owner proof access is verified against its payment. Admin review URLs are short-
 - `public/robots.txt`: preserve its crawler blocks and add `https://entryshippr-cloud.lovable.app/sitemap.xml` once the handler exists.
 - `AGENTS.md`: record the new module/security boundaries; keep `roadmap.md` current.
 
-Each new content route gets its own title, description, OG and Twitter metadata. Article canonicals use `https://entryshippr-cloud.lovable.app/blog/<slug>`. Published featured images are delivered through a published-post-aware endpoint or signed delivery; draft originals never get public object URLs. Any share image must match the visible article image, be publicly fetchable and sized appropriately. Private CMS previews are noindex/no-store. Sitemap public-origin URLs do not touch the existing `entrysetu.in` site.
+New routes get individual title/description/OG/Twitter metadata. Article canonicals use `https://entryshippr-cloud.lovable.app/blog/<slug>`. Add `src/routes/api/public/blog-images.$id.ts` for published-post-aware delivery of private featured images, including share-sized renditions prepared during upload. Draft images never become public. Share images match displayed images; CMS previews are noindex/no-store. Existing `entrysetu.in` remains untouched.
 
-## Verification and honest reporting
+## Verification
 
 Add focused tests:
 - `src/test/payment-proofs.test.ts`: allowed formats/5 MB cap, malformed files and references; pending submission cannot activate access.
