@@ -1,7 +1,7 @@
 -- =====================================================================
 -- EntrySetu V1 — Service matrix tests. DEVELOPMENT ONLY (zfvnqcyqxxipjaugkmvf).
 -- Run AFTER migration_2026_10_16_service_matrix.sql. One transaction, ROLLED BACK at the end.
--- Last notice: "ALL SERVICE MATRIX TESTS PASSED (31 assertions)" — raised only if all 31 passed.
+-- Last notice: "ALL SERVICE MATRIX TESTS PASSED (32 assertions)" — raised only if all 32 passed.
 -- =====================================================================
 begin;
 create schema tsm;
@@ -128,7 +128,7 @@ select tsm.ok((select count(*) = 0 from (select * from tsm.inv_before except sel
 select tsm.ok((select count(*) = 0 from (select * from tsm.slab_before except select * from public.rate_slabs) d), 'existing rate cards unchanged');
 
 do $$ declare v_n int := (select count(*) from tsm.log); begin
-  if v_n <> 31 then raise exception 'FAIL: % assertions passed, expected 31', v_n; end if;
+  if v_n <> 32 then raise exception 'FAIL: % assertions passed, expected 32', v_n; end if;
   raise notice 'ALL SERVICE MATRIX TESTS PASSED (% assertions)', v_n;
 end $$;
 rollback;
