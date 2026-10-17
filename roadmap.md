@@ -1,6 +1,9 @@
 # Roadmap
 - [x] Payments, Super Admin and Blog CMS: inspected existing files/schema and prepared DEV-only change/security plan
-- [ ] Payments, Super Admin and Blog CMS implementation — blocked pending plan review, separate required SQL/storage approval and real-account verification access
+- [ ] Payment proof submission and Super Admin reviews — implement code; real-account checks wait for separately approved SQL/storage setup
+- [ ] Four DEV payment/admin and blog migration/test files — generate for review only; never execute or provision buckets
+- [ ] Blog CMS, public articles and homepage latest four — implement without fake content
+- [ ] Code/security tests and existing billing/shipment/rate/import/invoice regressions — run available tests and report blocked authenticated checks
 - [x] Excel import: single zone-assignment popup for unmapped/ambiguous cities
 - [x] Uppercase names + autocomplete
 - [x] Duplicate client handling (explicit choice, friendly 23505)
