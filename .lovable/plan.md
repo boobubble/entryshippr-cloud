@@ -17,7 +17,7 @@ Approve the plan to start small code steps and generate DEV SQL/tests for review
 - `src/routes/index.tsx`, `src/routes/__root.tsx`, `src/components/PageHead.tsx`, `public/robots.txt`: homepage, shell and metadata. No blog editor/schema/routes/storage integration or sitemap exists.
 - `src/test/*`, `supabase/migration_2026_10_15_security_tests.sql`: existing regression/security patterns.
 
-Current subscription state lives on `profiles`; purchases live in `payments`. Reuse these rather than adding a duplicate subscription engine.
+Reuse `profiles` subscription state and `payments` history; no duplicate subscription engine.
 
 ## Step 1 — DEV database and storage proposals
 
@@ -58,7 +58,7 @@ Add `blog_posts`, `blog_categories`, `blog_tags`, `blog_post_tags`: title, uniqu
 - `src/lib/admin.functions.ts`, `src/lib/payment-proofs.functions.ts`: authenticated, role-checked operations.
 - `src/lib/payment-proof-validation.ts`: shared file/reference validation.
 - `src/components/PaymentProofForm.tsx`, `src/components/admin/PaymentReview.tsx`: upload/review controls.
-- `src/routes/_app/admin_.sellers.$id.tsx`: protected seller detail with plan/dates and paginated payment/audit history. Un-nested filename preserves the existing `/admin` page.
+- `src/routes/_app/admin_.sellers.$id.tsx`: protected seller detail with plan/dates and paginated payment/audit history. 
 
 Proof access is payment-owner/admin checked, short-lived and private/no-store. Validate image signatures, MIME and size server-side; never trust seller/amount/reviewer fields from the browser.
 
@@ -67,16 +67,16 @@ Proof access is payment-owner/admin checked, short-lived and private/no-store. V
 **Add:**
 - `src/lib/blog-validation.ts`, `src/lib/blog.functions.ts`: restricted rich-text schema, authoritative validation, admin mutations and anonymous published-only reads.
 - `src/components/blog/BlogEditor.tsx`, `BlogContent.tsx`, `BlogCard.tsx`, `LatestPosts.tsx`: maintained rich-text editor with headings, paragraphs, bold/italic, lists and hyperlinks/anchor text; render validated structured content as React nodes, never arbitrary stored HTML. Reject scripts, unsafe URL schemes, event attributes, embeds and unapproved nodes/marks at the write and render boundaries.
-- `src/routes/_app/admin_.posts.index.tsx`, `src/routes/_app/admin_.posts.$id.tsx`: protected WordPress-style post list/editor, draft/publish controls, taxonomy, image and SEO fields. Use un-nested filenames so the existing admin page does not swallow these pages.
+- `src/routes/_app/admin_.posts.index.tsx`, `src/routes/_app/admin_.posts.$id.tsx`: protected post list/editor with draft/publish, taxonomy, image and SEO fields; un-nested from the current admin page.
 - `src/routes/blog.index.tsx`, `src/routes/blog.$slug.tsx`: public listing and SSR article pages with published-only reads and genuine missing-article handling.
-- `src/lib/sitemap.ts`, `src/routes/sitemap[.]xml.ts`: router-derived static URLs and fully paginated published article URLs; failures must not emit successful partial XML. Public reads use a session-free publishable client, never the privileged billing helper.
+- `src/lib/sitemap.ts`, `src/routes/sitemap[.]xml.ts`: router-derived static URLs and fully paginated published article URLs; failures must not emit successful partial XML. Anonymous reads use publishable credentials and RLS.
 
 **Modify:**
 - `package.json` and dependency lockfile: maintained editor packages; no native/Node-only server dependencies.
 - `src/routes/index.tsx`: show latest **4** real published posts; no fake article content, no pricing/layout redesign. Add self-canonical metadata.
 - `src/routes/_app/route.tsx`: admin-only CMS navigation and sitemap exclusion for the private subtree.
 - All existing route files: explicit sitemap inclusion/exclusion only; private/auth/reset/API pages stay excluded. Preserve existing route paths and business behavior; never edit generated `src/routeTree.gen.ts`.
-- `public/robots.txt`: preserve its crawler blocks and add `https://entryshippr-cloud.lovable.app/sitemap.xml` once the handler exists.
+- `public/robots.txt`: retain crawler blocks; add `https://entryshippr-cloud.lovable.app/sitemap.xml` once the handler exists.
 - `AGENTS.md`: record the new module/security boundaries; keep `roadmap.md` current.
 
 New routes get individual title/description/OG/Twitter metadata. Article canonicals use `https://entryshippr-cloud.lovable.app/blog/<slug>`. Add `src/routes/api/public/blog-images.$id.ts` for published-post-aware delivery of private featured images, including share-sized renditions prepared during upload. Draft images never become public. Share images match displayed images; CMS previews are noindex/no-store. Existing `entrysetu.in` remains untouched.
