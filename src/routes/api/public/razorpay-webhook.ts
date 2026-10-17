@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { logPaymentFailure } from '@/lib/provider-errors';
 
 
 // Razorpay -> Settings -> Webhooks. Events: payment.captured, order.paid.
@@ -26,7 +27,7 @@ export const Route = createFileRoute("/api/public/razorpay-webhook")({
           try {
             await activatePayment(p.order_id, p.id, Number(p.amount));
           } catch (e) {
-            console.error("Webhook activation failed", e);
+            logPaymentFailure('webhook-activation', e);
             return new Response("Activation failed", { status: 500 });
           }
         }

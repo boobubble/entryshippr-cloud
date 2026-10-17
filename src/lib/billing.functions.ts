@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { PLANS, JOINING_FEE } from "./supabase";
+import { providerError } from './provider-errors';
 
 export const createOrder = createServerFn({ method: "POST" })
   .inputValidator((d: { token: string; plan: "standard" | "unlimited" }) => {
@@ -19,7 +20,7 @@ export const createOrder = createServerFn({ method: "POST" })
       body: JSON.stringify({ amount: amountPaise, currency: "INR", receipt: `es_${Date.now()}`, notes: { user_id: user.id, plan: data.plan } }),
     });
     const order = await r.json();
-    if (!r.ok) throw new Error(order?.error?.description || "Could not start payment");
+    if (!r.ok) throw providerError({ status: r.status }, 'Payment checkout');
     await rest("payments", {
       method: "POST",
       body: JSON.stringify({ owner_id: user.id, plan: data.plan, amount_paise: amountPaise, includes_joining_fee: withFee, razorpay_order_id: order.id }),
@@ -56,7 +57,7 @@ export const verifyPayment = createServerFn({ method: "POST" })
       });
       if (!cr.ok) throw new Error("Payment capture failed");
     } else if (payment.status !== "captured") {
-      throw new Error(`Payment not completed (${payment.status})`);
+      throw new Error('Payment not completed');
     }
     await activatePayment(data.orderId, data.paymentId, Number(payment.amount));
     return { ok: true };
