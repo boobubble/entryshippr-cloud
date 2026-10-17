@@ -223,7 +223,7 @@ function Entry() {
                   onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); if (!e.repeat) save(); } }} />
               : <input id="e-chg" readOnly className={`${field} bg-muted`} value={lastCharge ? `Last: ${lastCharge}` : "Auto"} title="Worked out from the city's zone and the client's rate card"
                   onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); if (!e.repeat) save(); } }} />}</div>
-          <Button type="submit" disabled={busy} className="col-span-2 h-12 px-6 text-lg font-bold sm:col-span-4 xl:col-span-1">{busy ? "Saving…" : "Add Shipment"}</Button>
+          <Button type="submit" disabled={busy} className="col-span-2 h-12 px-6 text-lg font-bold sm:col-span-4 md:col-span-1 xl:col-span-1">{busy ? "Saving…" : "Add Shipment"}</Button>
         </div>
       </form>
 
