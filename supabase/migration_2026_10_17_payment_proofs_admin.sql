@@ -34,7 +34,7 @@ CREATE TABLE public.subscription_audit (
  created_at timestamptz NOT NULL DEFAULT now()
 );
 GRANT SELECT ON public.subscription_audit TO authenticated;
-GRANT INSERT,SELECT ON public.subscription_audit TO service_role;
+GRANT SELECT ON public.subscription_audit TO service_role;
 ALTER TABLE public.subscription_audit ENABLE ROW LEVEL SECURITY;
 CREATE POLICY subscription_audit_admin ON public.subscription_audit FOR SELECT TO authenticated USING(public.is_admin());
 CREATE INDEX subscription_audit_owner ON public.subscription_audit(owner_id,created_at DESC);
@@ -75,11 +75,11 @@ BEGIN
  INSERT INTO public.payment_submissions(id,payment_id,owner_id,request_id,reference,proof_path,mime,byte_size) VALUES(sid,pid,u,p_request_id,btrim(p_reference),path,p_mime,p_size);
  RETURN jsonb_build_object('id',sid,'proof_path',path,'submitted_at',NULL);
 END $$;
-CREATE FUNCTION public.complete_manual_payment(p_id uuid) RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
+CREATE FUNCTION public.complete_manual_payment(p_id uuid,p_owner_id uuid) RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
 DECLARE s public.payment_submissions;
 BEGIN
- IF auth.uid() IS NULL OR auth.role()<>'authenticated' THEN RAISE EXCEPTION 'Sign in required' USING ERRCODE='42501'; END IF;
- SELECT * INTO s FROM public.payment_submissions WHERE id=p_id AND owner_id=auth.uid() FOR UPDATE;
+ -- Service-only completion after the app verifies the stored object's actual bytes.
+ SELECT * INTO s FROM public.payment_submissions WHERE id=p_id AND owner_id=p_owner_id FOR UPDATE;
  IF NOT FOUND OR s.status<>'pending' THEN RAISE EXCEPTION 'Pending submission not found'; END IF;
  IF s.submitted_at IS NOT NULL THEN RETURN; END IF;
  IF NOT EXISTS(SELECT 1 FROM storage.objects WHERE bucket_id='payment-proofs' AND name=s.proof_path AND metadata->>'mimetype'=s.mime AND (metadata->>'size')::bigint=s.byte_size) THEN RAISE EXCEPTION 'Verified screenshot upload is missing'; END IF;
@@ -136,11 +136,14 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION public.activate_payment(text,text,bigint) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.activate_payment(text,text,bigint) TO service_role;
-REVOKE ALL ON FUNCTION public.begin_manual_payment(public.plan_kind,text,text,bigint,uuid),public.complete_manual_payment(uuid),public.review_manual_payment(uuid,text,text),public.admin_set_access_audited(uuid,text,public.plan_kind,text) FROM PUBLIC,anon;
-GRANT EXECUTE ON FUNCTION public.begin_manual_payment(public.plan_kind,text,text,bigint,uuid),public.complete_manual_payment(uuid),public.review_manual_payment(uuid,text,text),public.admin_set_access_audited(uuid,text,public.plan_kind,text) TO authenticated;
+REVOKE ALL ON FUNCTION public.begin_manual_payment(public.plan_kind,text,text,bigint,uuid),public.review_manual_payment(uuid,text,text),public.admin_set_access_audited(uuid,text,public.plan_kind,text) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.begin_manual_payment(public.plan_kind,text,text,bigint,uuid),public.review_manual_payment(uuid,text,text),public.admin_set_access_audited(uuid,text,public.plan_kind,text) TO authenticated;
+REVOKE ALL ON FUNCTION public.complete_manual_payment(uuid,uuid) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.complete_manual_payment(uuid,uuid) TO service_role;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA entrysetu_private FROM PUBLIC,anon,authenticated;
 -- Bucket must be provisioned separately through Storage API, PRIVATE, 5 MB, permitted MIME types.
 CREATE POLICY payment_proof_insert ON storage.objects FOR INSERT TO authenticated WITH CHECK(bucket_id='payment-proofs' AND EXISTS(SELECT 1 FROM public.payment_submissions s WHERE s.owner_id=auth.uid() AND s.proof_path=name AND s.status='pending' AND s.submitted_at IS NULL));
 CREATE POLICY payment_proof_read ON storage.objects FOR SELECT TO authenticated USING(bucket_id='payment-proofs' AND EXISTS(SELECT 1 FROM public.payment_submissions s WHERE s.proof_path=name AND (s.owner_id=auth.uid() OR public.is_admin())));
+-- Storage object uniqueness + no UPDATE/DELETE policies prevent replace/upsert/delete by sellers.
 -- No UPDATE or DELETE policies: immutable evidence. No retention deletion job is authorized.
 COMMIT;

@@ -4,7 +4,7 @@ BEGIN;
 CREATE FUNCTION entrysetu_private.blog_node_valid(n jsonb,depth integer DEFAULT 0,parent text DEFAULT NULL) RETURNS boolean LANGUAGE plpgsql IMMUTABLE SET search_path='' AS $$
 DECLARE typ text; k text; child jsonb; mark jsonb; allowed text[];
 BEGIN
- IF depth>12 OR jsonb_typeof(n)<>'object' THEN RETURN false; END IF;
+ IF depth>12 OR jsonb_typeof(n) IS DISTINCT FROM 'object' THEN RETURN false; END IF;
  FOR k IN SELECT jsonb_object_keys(n) LOOP IF k NOT IN ('type','text','attrs','marks','content') THEN RETURN false; END IF; END LOOP;
  typ:=n->>'type'; IF typ IS NULL OR typ NOT IN ('doc','paragraph','heading','text','bulletList','orderedList','listItem','hardBreak') OR (depth=0 AND typ<>'doc') OR (depth>0 AND typ='doc') THEN RETURN false; END IF;
  IF typ='text' THEN
@@ -36,7 +36,7 @@ BEGIN
  RETURN true;
 EXCEPTION WHEN OTHERS THEN RETURN false;
 END $$;
-CREATE FUNCTION public.blog_document_valid(n jsonb) RETURNS boolean LANGUAGE sql IMMUTABLE SECURITY DEFINER SET search_path='' AS $$ SELECT n IS NOT NULL AND octet_length(n::text)<=100000 AND entrysetu_private.blog_node_valid(n) $$;
+CREATE FUNCTION public.blog_document_valid(n jsonb) RETURNS boolean LANGUAGE sql IMMUTABLE SECURITY DEFINER SET search_path='' AS $$ SELECT n IS NOT NULL AND octet_length(n::text)<=100000 AND jsonb_array_length(jsonb_path_query_array(n,'$.** ? (@.type != null)'))<=2000 AND entrysetu_private.blog_node_valid(n) $$;
 REVOKE ALL ON FUNCTION public.blog_document_valid(jsonb) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.blog_document_valid(jsonb) TO anon,authenticated,service_role;
 CREATE TABLE public.blog_categories(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),name text NOT NULL UNIQUE CHECK(length(btrim(name)) BETWEEN 1 AND 100));

@@ -1,8 +1,8 @@
 import { z } from 'zod';
-export function safeBlogUrl(value:string){try{const u=new URL(value);return ['http:','https:'].includes(u.protocol)&&!u.username&&!u.password;}catch{return false;}}
+export function safeBlogUrl(value:string){if(!/^https?:\/\//.test(value)||/[\x00-\x20\x7f]/.test(value))return false;try{const u=new URL(value);return ['http:','https:'].includes(u.protocol)&&!u.username&&!u.password;}catch{return false;}}
 export type BlogNode={type:string;text?:string;attrs?:{href?:string;level?:number};marks?:{type:'bold'|'italic'|'link';attrs?:{href:string}}[];content?:BlogNode[]};
 export function validateBlogDocument(value:unknown):BlogNode {
- if(JSON.stringify(value).length>100000)throw new Error('Article is too large.');let count=0;
+ const serialized=JSON.stringify(value);if(!serialized||new TextEncoder().encode(serialized).length>100000)throw new Error('Article is too large.');let count=0;
  function check(v:unknown,depth:number,parent?:string):BlogNode {
   if(depth>12||++count>2000||!v||typeof v!=='object'||Array.isArray(v))throw new Error('Invalid article structure.');
   const n=v as BlogNode; const keys=Object.keys(n);if(keys.some(k=>!['type','text','attrs','marks','content'].includes(k)))throw new Error('Unsupported article attribute.');
