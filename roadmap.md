@@ -1,9 +1,12 @@
 # Roadmap
 - [x] Payments, Super Admin and Blog CMS: inspected existing files/schema and prepared DEV-only change/security plan
-- [ ] Payment proof submission and Super Admin reviews — implement code; real-account checks wait for separately approved SQL/storage setup
-- [ ] Four DEV payment/admin and blog migration/test files — generate for review only; never execute or provision buckets
-- [ ] Blog CMS, public articles and homepage latest four — implement without fake content
-- [ ] Code/security tests and existing billing/shipment/rate/import/invoice regressions — run available tests and report blocked authenticated checks
+- [x] Payment proof submission and Super Admin reviews — code implemented; reason-required audited actions, private proofs and paginated history
+- [x] Four DEV payment/admin and blog migration/test files — generated for review only; no SQL executed and no buckets provisioned
+- [x] Blog CMS, public articles and homepage latest four — implemented without fake content; unpublished images remain private
+- [x] Code/security tests and existing billing/shipment/rate/import/invoice regressions — automated suite run; public Preview checked with no page errors
+- [ ] New payment/blog SQL execution and Storage API setup — blocked: separate explicit approval required; SQL tests have not been executed
+- [ ] Seller upload/admin review/CMS publish real-account read-back and true concurrency checks — blocked: external development account access and approved schema/storage unavailable
+- [ ] Private-image retention/orphan cleanup — blocked: retention/deletion policy approval; no cleanup or destructive operation authorized
 - [x] Excel import: single zone-assignment popup for unmapped/ambiguous cities
 - [x] Uppercase names + autocomplete
 - [x] Duplicate client handling (explicit choice, friendly 23505)
