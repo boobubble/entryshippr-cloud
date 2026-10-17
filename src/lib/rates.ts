@@ -1,8 +1,16 @@
 // Zone-wise slab pricing (pure; unit-tested). DOX weights in grams, NON-DOX in kilograms.
 import type { ShipmentType } from "./import-weights";
 
-export type Service = "Standard" | "Fast";
-export const SERVICES: Service[] = ["Standard", "Fast"];
+export type Service = "Standard" | "Surface" | "Air" | "Fast";
+export const SERVICES: Service[] = ["Standard", "Surface", "Air", "Fast"];
+const SERVICE_MATRIX: Record<ShipmentType, readonly Service[]> = {
+  DOX: ["Standard", "Fast"],
+  "NON-DOX": ["Surface", "Air", "Fast"],
+};
+export const servicesFor = (type: ShipmentType) => SERVICE_MATRIX[type];
+export function serviceForType(type: ShipmentType, service: Service): Service {
+  return servicesFor(type).includes(service) ? service : type === "DOX" ? "Standard" : "Surface";
+}
 export type Zone = { id: string; name: string; destinations: string[]; sort_order: number };
 export type Slab = {
   id?: string; client_id: string | null; shipment_type: ShipmentType; service: Service;
@@ -10,8 +18,10 @@ export type Slab = {
 };
 export type EditSlab = { key: string; min: string; max: string; rates: Record<string, string> };
 
-export function normService(s: unknown): Service {
-  return /fast|express|priority|air/i.test(String(s ?? "")) ? "Fast" : "Standard";
+export function normService(s: unknown, type: ShipmentType | null): Service | null {
+  const aliases: Record<string, Service> = { standard: "Standard", air: "Air", surface: "Surface", ground: "Surface", fast: "Fast", express: "Fast", priority: "Fast" };
+  const service = aliases[String(s ?? "").trim().toLowerCase()];
+  return type && service && servicesFor(type).includes(service) ? service : null;
 }
 
 const n = (s: string) => (s.trim() === "" ? NaN : Number(s));
@@ -27,8 +37,10 @@ export function validateSlabs(slabs: EditSlab[], unit: "g" | "kg"): string[] {
     for (const [, v] of Object.entries(s.rates)) if (v.trim() !== "" && !(Number(v) > 0)) { errs.push(`Slab ${i + 1}: rates must be more than ₹0`); break; }
   });
   const ok = parsed.filter((p) => Number.isFinite(p.mn) && Number.isFinite(p.mx) && p.mx > p.mn).sort((a, b) => a.mn - b.mn);
-  for (let k = 1; k < ok.length; k++)
-    if (ok[k]!.mn < ok[k - 1]!.mx) errs.push(`Slabs ${ok[k - 1]!.i + 1} and ${ok[k]!.i + 1} overlap (${ok[k - 1]!.s.min}–${ok[k - 1]!.s.max} and ${ok[k]!.s.min}–${ok[k]!.s.max} ${unit})`);
+  for (let k = 1; k < ok.length; k++) {
+    const prev = ok[k - 1]; const current = ok[k];
+    if (prev && current && current.mn < prev.mx) errs.push(`Slabs ${prev.i + 1} and ${current.i + 1} overlap (${prev.s.min}–${prev.s.max} and ${current.s.min}–${current.s.max} ${unit})`);
+  }
   return errs;
 }
 

@@ -6,7 +6,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { supabase, inr } from "@/lib/supabase";
 import { useClients, useZones, errMsg } from "@/lib/hooks";
 import { normCity, registerCities, type CityRes } from "@/lib/cities";
-import { billedWeight } from "@/lib/rates";
+import { billedWeight, servicesFor, serviceForType, type Service } from "@/lib/rates";
 import { up, upName } from "@/lib/text";
 import { CityZoneDialog } from "@/components/CityZoneDialog";
 import { appHead } from "@/components/PageHead";
@@ -20,7 +20,7 @@ export const Route = createFileRoute("/_app/entry")({
 
 type Opt = { key: string; label: string; sub?: string | undefined };
 type Saved = { id: string; awb: string; ship_date: string; destination: string | null; service: string; weight: number; amount: number; pricing_status?: string; review_reason?: string | null; shipment_type?: string | null; charge_mode?: string | null; clients: { name: string } | null };
-type Draft = { awb: string; client_id: string; date: string; city: string; service: "Standard" | "Fast"; type: "DOX" | "NON-DOX"; weight: string; charge: "auto" | "manual"; manual: string };
+type Draft = { awb: string; client_id: string; date: string; city: string; service: Service; type: "DOX" | "NON-DOX"; weight: string; charge: "auto" | "manual"; manual: string };
 
 const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const shift = (s: string, n: number) => { const d = new Date(`${s}T00:00:00`); d.setDate(d.getDate() + n); return ymd(d); };
@@ -74,7 +74,7 @@ function Entry() {
   const { data: clients = [] } = useClients();
   const { data: zones = [] } = useZones();
   const qc = useQueryClient();
-  const [d, setD] = useState<Draft>({ awb: "", client_id: "", date: ymd(new Date()), city: "", service: "Standard", type: "NON-DOX", weight: "", charge: "auto", manual: "" });
+  const [d, setD] = useState<Draft>({ awb: "", client_id: "", date: ymd(new Date()), city: "", service: "Surface", type: "NON-DOX", weight: "", charge: "auto", manual: "" });
   const [clientText, setClientText] = useState("");
   const [cityPicked, setCityPicked] = useState<{ name: string; state: string | null } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -210,9 +210,9 @@ function Entry() {
               onText={(v) => { setD({ ...d, city: v }); setCityPicked(null); }}
               onPick={(o) => { const c = cityOpts.find((x) => x.key === o.key)!; setD({ ...d, city: up(c.name) }); setCityPicked({ name: c.name, state: c.state }); }} /></div>
           <div className="min-w-0"><label className={label} htmlFor="e-type">Type</label>
-            <select id="e-type" className={field} value={d.type} onChange={(e) => setD({ ...d, type: e.target.value as Draft["type"] })}><option>DOX</option><option>NON-DOX</option></select></div>
+            <select id="e-type" className={field} value={d.type} onChange={(e) => { const type = e.target.value as Draft["type"]; setD({ ...d, type, service: serviceForType(type, d.service) }); }}><option>DOX</option><option>NON-DOX</option></select></div>
           <div className="min-w-0"><label className={label} htmlFor="e-svc">Service</label>
-            <select id="e-svc" className={field} value={d.service} onChange={(e) => setD({ ...d, service: e.target.value as Draft["service"] })}><option>Standard</option><option>Fast</option></select></div>
+            <select id="e-svc" className={field} value={d.service} onChange={(e) => setD({ ...d, service: e.target.value as Draft["service"] })}>{servicesFor(d.type).map((sv) => <option key={sv}>{sv}</option>)}</select></div>
           <div className="min-w-0"><label className={label} htmlFor="e-wt">Wt. (Kg)</label>
             <input id="e-wt" type="number" step="0.001" min="0.001" className={field} value={d.weight} onChange={(e) => setD({ ...d, weight: e.target.value })} /></div>
           <div className="min-w-0"><label className={label} htmlFor="e-mode">Charge</label>

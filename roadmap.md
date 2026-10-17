@@ -9,7 +9,8 @@
 - [x] Final Invoice Editor step 1: SQL applied in DEV
 - [x] Final Invoice Editor step 2: editor UI, list badges, reissue, PDF with charges
 - [x] Fast manual consignment entry page + double-save lock
-- [ ] AWB series + Manual charges SQL — awaiting user run in DEV
-- [ ] AWB series settings + Auto/Manual charges UI (blocked: waits for SQL run)
+- [x] AWB series + Manual charges SQL — user confirmed applied in DEV, all 85 assertions passed
+- [x] AWB series settings + Auto/Manual charges UI
 - [ ] Service matrix SQL (DOX Standard/Fast; NON-DOX Surface/Air/Fast, Option A legacy) — awaiting user review/run in DEV
-- [ ] Service matrix app changes (blocked: waits for SQL run)
+- [x] Service matrix app integration — 58 automated tests passed; isolated browser checks passed; legacy cards read-only
+- [ ] Service matrix authenticated DEV save/read-back and invoice verification — blocked: external account session unavailable; deployed service-matrix compatibility unverified
