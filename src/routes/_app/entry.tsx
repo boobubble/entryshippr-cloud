@@ -186,7 +186,7 @@ function Entry() {
       </div>
 
       <form onSubmit={(e) => { e.preventDefault(); save(); }} className="mb-4 space-y-3 rounded-xl border bg-card p-3">
-        <div className="grid grid-cols-1 items-end gap-2 sm:grid-cols-[auto_minmax(0,1fr)]">
+        <div className="grid grid-cols-1 items-end gap-2 sm:grid-cols-[auto_minmax(0,1fr)_9rem]">
           <div><label className={label} htmlFor="e-date">Date</label>
             <div className="flex items-center gap-1">
               <Button type="button" variant="outline" size="icon" className="h-12 w-10 shrink-0" aria-label="Previous day" onClick={() => setD({ ...d, date: shift(d.date, -1) })}><ChevronLeft /></Button>
@@ -194,15 +194,17 @@ function Entry() {
                 onChange={(e) => e.target.value && setD({ ...d, date: e.target.value })} />
               <Button type="button" variant="outline" size="icon" className="h-12 w-10 shrink-0" aria-label="Next day" onClick={() => setD({ ...d, date: shift(d.date, 1) })}><ChevronRight /></Button>
             </div></div>
-          <div className="min-w-0 sm:max-w-xl"><label className={label} htmlFor="e-client">Client / Party</label>
+          <div className="min-w-0"><label className={label} htmlFor="e-client">Client / Party</label>
             <Combo id="e-client" value={clientText} picked={!!d.client_id} options={clientOpts} placeholder="Type to search"
               onText={(v) => { setClientText(v); setD({ ...d, client_id: "" }); }}
               onPick={async (o) => {
                 setClientText(o.label); const next = { ...d, client_id: o.key }; setD(next);
                 if (!d.awb.trim()) { const s = await suggestFor(o.key); if (s) setD((p) => (p.awb ? p : { ...p, awb: s })); }
               }} /></div>
+          <div className="min-w-0"><label className={label} htmlFor="e-mode">Charge</label>
+            <select id="e-mode" className={field} value={d.charge} onChange={(e) => setD({ ...d, charge: e.target.value as Draft["charge"], manual: "" })}><option value="auto">Auto</option><option value="manual">Manual</option></select></div>
         </div>
-        <div className="grid grid-cols-2 items-end gap-2 sm:grid-cols-4 xl:grid-cols-[1.3fr_1.8fr_0.9fr_1fr_0.9fr_0.9fr_1.1fr_auto]">
+        <div className="grid grid-cols-2 items-end gap-2 sm:grid-cols-4 xl:grid-cols-[1.3fr_1.8fr_0.9fr_1fr_0.9fr_1.1fr_auto]">
           <div className="min-w-0"><label className={label} htmlFor="e-awb">AWB Number</label>
             <input id="e-awb" ref={awbRef} className={field} autoComplete="off" maxLength={40} value={d.awb} onChange={(e) => setD({ ...d, awb: e.target.value })} /></div>
           <div className="min-w-0"><label className={label} htmlFor="e-city">Destination City</label>
@@ -215,8 +217,6 @@ function Entry() {
             <select id="e-svc" className={field} value={d.service} onChange={(e) => setD({ ...d, service: e.target.value as Draft["service"] })}>{servicesFor(d.type).map((sv) => <option key={sv}>{sv}</option>)}</select></div>
           <div className="min-w-0"><label className={label} htmlFor="e-wt">Wt. (Kg)</label>
             <input id="e-wt" type="number" step="0.001" min="0.001" className={field} value={d.weight} onChange={(e) => setD({ ...d, weight: e.target.value })} /></div>
-          <div className="min-w-0"><label className={label} htmlFor="e-mode">Charge</label>
-            <select id="e-mode" className={field} value={d.charge} onChange={(e) => setD({ ...d, charge: e.target.value as Draft["charge"], manual: "" })}><option value="auto">Auto</option><option value="manual">Manual</option></select></div>
           <div className="min-w-0"><label className={label} htmlFor="e-chg">Charges (₹)</label>
             {d.charge === "manual"
               ? <input id="e-chg" type="number" step="0.01" min="0.01" className={field} value={d.manual} placeholder="Amount" onChange={(e) => setD({ ...d, manual: e.target.value })}
