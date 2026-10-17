@@ -21,7 +21,7 @@ export function validatePaymentProofBytes(bytes: Uint8Array, type: string) {
       } else if (chunk === 'IHDR') invalid();
       let crc = 0xffffffff;
       for (let i = offset + 4; i < end - 4; i++) {
-        crc ^= bytes[i];
+        crc ^= view.getUint8(i);
         for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ ((crc & 1) ? 0xedb88320 : 0);
       }
       if (((crc ^ 0xffffffff) >>> 0) !== view.getUint32(end - 4)) invalid();
@@ -41,7 +41,7 @@ export function validatePaymentProofBytes(bytes: Uint8Array, type: string) {
       if (bytes[offset++] !== 0xff) invalid();
       while (bytes[offset] === 0xff) offset++;
       if (offset >= bytes.length) invalid();
-      const marker = bytes[offset++];
+      const marker = view.getUint8(offset++);
       if (marker === 0xd9) {
         if (!frame || !scan || offset !== bytes.length) invalid();
         return;
@@ -52,19 +52,20 @@ export function validatePaymentProofBytes(bytes: Uint8Array, type: string) {
       const length = view.getUint16(offset);
       if (length < 2 || offset + length > bytes.length) invalid();
       if ([0xc0,0xc1,0xc2,0xc3,0xc5,0xc6,0xc7,0xc9,0xca,0xcb,0xcd,0xce,0xcf].includes(marker)) {
-        if (length < 8 || view.getUint16(offset + 5) === 0 || bytes[offset + 7] === 0 || length !== 8 + 3 * bytes[offset + 7]) invalid();
+        if (length < 8 || view.getUint16(offset + 5) === 0 || view.getUint8(offset + 7) === 0 || length !== 8 + 3 * view.getUint8(offset + 7)) invalid();
         frame = true;
       }
       offset += length;
       if (marker === 0xda) {
-        if (!frame || length < 6 || bytes[offset - length + 2] === 0 || length !== 6 + 2 * bytes[offset - length + 2]) invalid();
+        if (!frame || length < 6 || view.getUint8(offset - length + 2) === 0 || length !== 6 + 2 * view.getUint8(offset - length + 2)) invalid();
         const start = offset;
         while (offset < bytes.length) {
           if (bytes[offset] !== 0xff) { offset++; continue; }
           let next = offset + 1;
           while (bytes[next] === 0xff) next++;
           if (next >= bytes.length) invalid();
-          if (bytes[next] === 0 || (bytes[next] >= 0xd0 && bytes[next] <= 0xd7)) { offset = next + 1; continue; }
+          const nextMarker = view.getUint8(next);
+          if (nextMarker === 0 || (nextMarker >= 0xd0 && nextMarker <= 0xd7)) { offset = next + 1; continue; }
           break;
         }
         if (offset === start) invalid();

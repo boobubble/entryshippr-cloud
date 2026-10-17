@@ -17,7 +17,8 @@ describe('Payment proof container validation', () => {
   });
   it('rejects PNG chunk overruns and invalid CRC', () => {
     const data = bytes(png.base64);
-    data[16] ^= 1;
+    const view = new DataView(data.buffer);
+    view.setUint8(16, view.getUint8(16) ^ 1);
     expect(() => validatePaymentProofBytes(data, png.type)).toThrow();
     new DataView(data.buffer).setUint32(8, 0xffffffff);
     expect(() => validatePaymentProofBytes(data, png.type)).toThrow();
