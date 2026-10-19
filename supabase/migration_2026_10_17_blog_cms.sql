@@ -100,7 +100,7 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION public.save_blog_post(jsonb) FROM PUBLIC,anon;
 GRANT EXECUTE ON FUNCTION public.save_blog_post(jsonb) TO authenticated;
-REVOKE ALL ON ALL FUNCTIONS IN SCHEMA entrysetu_private FROM PUBLIC,anon,authenticated;
+REVOKE ALL ON FUNCTION entrysetu_private.blog_node_valid(jsonb,integer,text) FROM PUBLIC,anon,authenticated;
 CREATE POLICY blog_images_admin_read ON storage.objects FOR SELECT TO authenticated USING(bucket_id='blog-images' AND public.is_admin());
 CREATE POLICY blog_images_admin_insert ON storage.objects FOR INSERT TO authenticated WITH CHECK(bucket_id='blog-images' AND public.is_admin() AND name ~ '^[0-9a-f-]{36}/[0-9a-f-]{36}\.(png|jpg|webp)$' AND EXISTS(SELECT 1 FROM public.blog_posts p WHERE p.id::text=split_part(name,'/',1)));
 -- No anonymous Storage policy. Public image endpoint rechecks current publication on every request.
