@@ -18,7 +18,7 @@ export async function authenticatedClient(token: string, admin = false) {
   setResponseHeader('Cache-Control', 'no-store');
   if (typeof token !== 'string' || token.length < 20 || token.length > 8000) throw new Error('Please sign in again.');
   const client = externalClient(token);
-  const { data, error } = await client.auth.getUser(token).catch(() => { throw providerError({ status: 401 }); });
+  const { data, error } = await client.auth.getUser(token).catch(() => { throw providerError({}, 'Sign-in check'); });
   if (error || !data.user) throw new Error('Please sign in again.');
   if (admin) {
     const role = await client.rpc('is_admin').then(result => result, () => { throw new Error('Admins only.'); });
