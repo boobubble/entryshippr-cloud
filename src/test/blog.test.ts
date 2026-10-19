@@ -1,6 +1,7 @@
 import { describe,it,expect } from 'vitest';
-import { EMPTY_DOCUMENT,safeBlogUrl,validateBlogDocument,postSchema } from '@/lib/blog-validation';
+import { EMPTY_DOCUMENT,safeBlogUrl,validateBlogDocument,postSchema,SITE_URL } from '@/lib/blog-validation';
 describe('Blog safety',()=>{
+ it('uses the EntrySetu production hostname for canonical and image URLs',()=>expect(SITE_URL).toBe('https://entrysetu.in'));
  it('accepts empty draft',()=>expect(validateBlogDocument(EMPTY_DOCUMENT)).toEqual(EMPTY_DOCUMENT));
  it.each(['javascript:alert(1)','data:text/html,evil','https://user:pass@example.com','//evil.test',' https://example.com','https://example.com\n'])('rejects unsafe URL %s',v=>expect(safeBlogUrl(v)).toBe(false));
  it('accepts https links',()=>expect(safeBlogUrl('https://example.com/article?a=1')).toBe(true));
