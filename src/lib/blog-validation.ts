@@ -15,6 +15,9 @@ export function validateBlogDocument(value:unknown):BlogNode {
   if(n.marks){if(!Array.isArray(n.marks)||n.marks.length>3)throw new Error('Invalid text formatting.');for(const m of n.marks){if(!m||Object.keys(m).some(k=>!['type','attrs'].includes(k))||!['bold','italic','link'].includes(m.type))throw new Error('Unsupported text formatting.');if(m.type==='link'){if(!m.attrs||Object.keys(m.attrs).some(k=>k!=='href')||typeof m.attrs.href!=='string'||m.attrs.href.length>2048||!safeBlogUrl(m.attrs.href))throw new Error('Invalid link.');}else if(m.attrs)throw new Error('Unsupported text attributes.');}}
   if(n.type==='hardBreak'&&(n.content||n.attrs||!['paragraph','heading'].includes(parent||'')))throw new Error('Invalid line break.');
   if(!['text','hardBreak'].includes(n.type)){
+    // Tiptap can omit content on an empty paragraph/heading. Normalize those
+    // nodes to an empty array so drafts can be saved before text is entered.
+    if(n.content===undefined&&['paragraph','heading'].includes(n.type))n.content=[];
     if(!Array.isArray(n.content))throw new Error('Article content required.');
     const allowed=n.type==='doc'||n.type==='listItem'?['paragraph','heading','bulletList','orderedList']:n.type==='bulletList'||n.type==='orderedList'?['listItem']:['text','hardBreak'];
     for(const child of n.content){if(!child||!allowed.includes(child.type))throw new Error('Invalid nested content.');check(child,depth+1,n.type);}
@@ -27,4 +30,4 @@ export const postSchema=z.object({id:z.string().uuid(),title:z.string().trim().m
 export const EMPTY_DOCUMENT:BlogNode={type:'doc',content:[{type:'paragraph',content:[]}]};
 export type BlogPost={id:string;title:string;slug:string;excerpt:string;content:BlogNode;status:'draft'|'published';category_id:string|null;featured_image_path:string|null;image_alt:string;seo_title:string;seo_description:string;published_at:string|null;updated_at:string};
 export const SITE_URL='https://entrysetu.in';
-export function blogImageUrl(post:Pick<BlogPost,'id'|'featured_image_path'>){return post.featured_image_path?`${SITE_URL}/api/public/blog-images/${post.id}`:undefined;}
+export function blogImageUrl(post:Pick<BlogPost,'id'|'featured_image_path'>){return post.featured_image_path? `${SITE_URL}/api/public/blog-images/${post.id}`:undefined;}
