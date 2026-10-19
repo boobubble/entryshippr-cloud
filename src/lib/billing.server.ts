@@ -14,7 +14,7 @@ export async function getUser(token: string): Promise<{ id: string; email: strin
 
 export async function rest(path: string, init: RequestInit = {}) {
   const key = process.env["EXT_SUPABASE_SECRET_KEY"];
-  if (!key) throw Object.assign(providerError({ status: 401 }, 'Payment configuration', 'server'));
+  if (!key) throw providerError({ status: 401 }, 'Payment configuration', 'server');
   const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
     ...init,
     headers: { apikey: key, "Content-Type": "application/json", Prefer: "return=representation", ...(init.headers || {}) },
