@@ -35,7 +35,7 @@ export const submitPaymentProof = createServerFn({ method: 'POST' })
         try {
           complete = await fetch(`${SUPABASE_URL}/rest/v1/rpc/complete_manual_payment`, { method: 'POST', headers: { apikey: key, 'Content-Type': 'application/json' }, body: JSON.stringify({ p_id: id, p_owner_id: ownerId }) });
         } catch { throw providerError({}, 'Payment submission completion'); }
-        if (!complete.ok) throw providerError({ status: complete.status }, 'Payment submission completion');
+        if (!complete.ok) throw providerError({ status: complete.status }, 'Payment submission completion', 'server');
       },
     });
   });
