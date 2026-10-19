@@ -1,5 +1,5 @@
 # Roadmap
-- [ ] Restore original subscription prices and first-purchase joining fee; verify history, pricing tests and absence of temporary pricing; no deployment or payment-record changes
+- [x] Restore original subscription prices ₹1,200/₹1,800 and ₹3,000 first-purchase joining fee; Git history matches, 205 tests passed and homepage verified; no deployment or payment-record changes
 - [x] Essential follow-up: strict still-image headers/resource limits, server-only pixel decoding, submission failure/retry tests and sanitized provider errors/logs; hosted decoder and real DEV integration remain unverified
 - [x] Essential payment-proof code fixes: dedicated structural checks, truthful history errors, admin paid-history refresh; 142 tests passed, preview build OK; real DEV upload/review remains blocked by external session/setup
 - [x] Payments, Super Admin and Blog CMS: inspected existing files/schema and prepared DEV-only change/security plan
