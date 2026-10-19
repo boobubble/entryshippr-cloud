@@ -1,16 +1,20 @@
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "./supabase";
-import { providerError } from './provider-errors';
+import { providerError, sessionError } from './provider-errors';
 export async function getUser(token: string): Promise<{ id: string; email: string }> {
   const r = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
     headers: { apikey: SUPABASE_PUBLISHABLE_KEY, Authorization: `Bearer ${token}` },
-  }).catch(() => { throw providerError({ status: 401 }); });
-  if (!r.ok) throw new Error("Not signed in");
-  return r.json();
+  }).catch(() => { throw providerError({}, 'Sign-in check'); });
+  // Only a rejected token means the user must sign in again; outages are reported as unavailable.
+  if (r.status === 400 || r.status === 401 || r.status === 403) throw sessionError(r.status);
+  if (!r.ok) throw providerError({ status: r.status }, 'Sign-in check');
+  const user = await r.json().catch(() => { throw providerError({}, 'Sign-in check'); });
+  if (!user?.id) throw sessionError(r.status);
+  return user;
 }
 
 export async function rest(path: string, init: RequestInit = {}) {
   const key = process.env["EXT_SUPABASE_SECRET_KEY"];
-  if (!key) throw providerError({}, 'Payment configuration');
+  if (!key) throw Object.assign(providerError({ status: 401 }, 'Payment configuration', 'server'));
   const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
     ...init,
     headers: { apikey: key, "Content-Type": "application/json", Prefer: "return=representation", ...(init.headers || {}) },
@@ -19,7 +23,8 @@ export async function rest(path: string, init: RequestInit = {}) {
   if (!r.ok) {
     let code: string | undefined;
     try { const body = JSON.parse(text); if (typeof body.code === 'string') code = body.code; } catch { /* Do not forward response bodies. */ }
-    throw providerError({ status: r.status, code }, 'Database request');
+    // Uses the server secret key, so 401/403 is a server configuration fault, not the user's session.
+    throw providerError({ status: r.status, code }, 'Database request', 'server');
   }
   try { return text ? JSON.parse(text) : null; } catch { throw providerError({}, 'Database response'); }
 }
