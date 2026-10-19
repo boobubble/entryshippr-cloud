@@ -19,10 +19,10 @@ export async function accessToken() {
 }
 
 export const PLANS = {
-  standard: { name: "Standard", price: 1, limit: "Up to 50 active clients" },
-  unlimited: { name: "Standard Unlimited", price: 2, limit: "Unlimited active clients" },
+  standard: { name: "Standard", price: 1200, limit: "Up to 50 active clients" },
+  unlimited: { name: "Standard Unlimited", price: 1800, limit: "Unlimited active clients" },
 } as const;
-export const JOINING_FEE = 0;
+export const JOINING_FEE = 3000;
 
 export const inr = (n: number) =>
   "₹" + Number(n || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
