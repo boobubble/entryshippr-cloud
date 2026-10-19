@@ -1,4 +1,6 @@
 # Roadmap
+- [x] Temporary Razorpay/app subscription pricing: Standard ₹1, Unlimited ₹2, no joining fee; 15 tests passed and homepage verified; no orders or deployment
+- [ ] Match manual-proof database pricing to temporary prices — blocked: separate SQL/database approval required; existing RPC amounts unchanged
 - [x] Essential follow-up: strict still-image headers/resource limits, server-only pixel decoding, submission failure/retry tests and sanitized provider errors/logs; hosted decoder and real DEV integration remain unverified
 - [x] Essential payment-proof code fixes: dedicated structural checks, truthful history errors, admin paid-history refresh; 142 tests passed, preview build OK; real DEV upload/review remains blocked by external session/setup
 - [x] Payments, Super Admin and Blog CMS: inspected existing files/schema and prepared DEV-only change/security plan

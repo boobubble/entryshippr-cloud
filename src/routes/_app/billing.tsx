@@ -67,7 +67,7 @@ function Billing() {
     finally { setBusy(null); }
   }
 
-  const feeDue = !me?.profile?.["joining_fee_paid"];
+  const feeDue = JOINING_FEE > 0 && !me?.profile?.["joining_fee_paid"];
   return (
     <div>
       <PageHead title="Subscription" />

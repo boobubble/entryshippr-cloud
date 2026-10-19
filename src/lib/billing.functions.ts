@@ -19,7 +19,7 @@ export const createOrder = createServerFn({ method: "POST" })
     const user = await paymentStage('checkout', 'auth-verify', () => getUser(data.token));
     const [profile] = await paymentStage('checkout', 'profile-read', () => rest(`profiles?id=eq.${user.id}&select=joining_fee_paid`));
     if (!profile) throw new Error("Profile not found");
-    const withFee = !profile["joining_fee_paid"];
+    const withFee = JOINING_FEE > 0 && !profile["joining_fee_paid"];
     const amountPaise = (PLANS[data.plan].price + (withFee ? JOINING_FEE : 0)) * 100;
     const order = await paymentStage('checkout', 'gateway-order', () => razorpay("https://api.razorpay.com/v1/orders", {
       method: "POST",

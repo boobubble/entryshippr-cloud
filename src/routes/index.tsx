@@ -64,7 +64,7 @@ function Landing() {
       <section id="pricing" className="bg-sidebar py-20 text-sidebar-foreground">
         <div className="mx-auto max-w-4xl px-6">
           <h2 className="text-3xl font-bold">Simple yearly pricing</h2>
-          <p className="mt-2 opacity-80">One-time joining fee of {inr(JOINING_FEE)} on your first paid purchase. Prices in INR.</p>
+          <p className="mt-2 opacity-80">{JOINING_FEE > 0 ? `One-time joining fee of ${inr(JOINING_FEE)} on your first paid purchase.` : "No joining fee for either plan."} Prices in INR.</p>
           <div className="mt-8 grid gap-4 md:grid-cols-2">
             {(Object.keys(PLANS) as (keyof typeof PLANS)[]).map((k) => (
               <div key={k} className="rounded-xl bg-sidebar-accent p-6">
