@@ -26,5 +26,5 @@ export function validateBlogDocument(value:unknown):BlogNode {
 export const postSchema=z.object({id:z.string().uuid(),title:z.string().trim().min(1).max(200),slug:z.string().min(1).max(160).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),excerpt:z.string().max(500),content:z.unknown().transform(validateBlogDocument),status:z.enum(['draft','published']),category_id:z.string().uuid().nullable(),tags:z.array(z.string().uuid()).max(20),image_alt:z.string().max(200),seo_title:z.string().max(200),seo_description:z.string().max(500)});
 export const EMPTY_DOCUMENT:BlogNode={type:'doc',content:[{type:'paragraph',content:[]}]};
 export type BlogPost={id:string;title:string;slug:string;excerpt:string;content:BlogNode;status:'draft'|'published';category_id:string|null;featured_image_path:string|null;image_alt:string;seo_title:string;seo_description:string;published_at:string|null;updated_at:string};
-export const SITE_URL='https://entryshippr-cloud.lovable.app';
+export const SITE_URL='https://entrysetu.in';
 export function blogImageUrl(post:Pick<BlogPost,'id'|'featured_image_path'>){return post.featured_image_path?`${SITE_URL}/api/public/blog-images/${post.id}`:undefined;}
