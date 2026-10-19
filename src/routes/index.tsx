@@ -6,11 +6,11 @@ import { Button } from "@/components/ui/button";
 import { PLANS, JOINING_FEE, inr } from "@/lib/supabase";
 import { FileSpreadsheet, Receipt, Users, Truck, ShieldCheck, Gauge } from "lucide-react";
 
-const latestQuery = queryOptions({ queryKey: ["latest-posts"], queryFn: () => listPublishedPosts({ data: { page: 0, limit: 4 } }) });
+const latestQuery = queryOptions({ queryKey: ["latest-posts"], queryFn: () => listPublishedPosts({ data: { page: 0, limit: 3 } }) });
 export const Route = createFileRoute("/")({
   loader: ({ context }) => context.queryClient.ensureQueryData(latestQuery),
   head: () => ({
-    links: [{ rel: "canonical", href: "https://entryshippr-cloud.lovable.app/" }],
+    links: [{ rel: "canonical", href: "https://entrysetu.in/" }],
     meta: [
       { title: "EntrySetu — Your Business Entry & Billing Bridge" },
       { name: "description", content: "Courier entry, Excel import, rate cards and GST/Non-GST invoicing in one place. Start a 5-day free trial." },
