@@ -6,6 +6,7 @@
 - This is an ESM TanStack Start application using `createServerFn`, Nitro and the existing external DEV database. `vite.config.ts` defaults to the current hosted server target. No Vercel configuration is present; actual Vercel deployment compatibility cannot be established from this repository alone.
 - Official `gstinapi@1.0.0` is dependency-free CommonJS and uses fetch, AbortController and timers, with no native/filesystem dependencies. Use its bundled ESM interoperability; confirm through automatic compilation and tests rather than introducing another server framework.
 - Provider docs confirm the basic endpoint, safe sandbox GSTIN, distinct error statuses, checksum support and at most three attempts for 429/502.
+- Local execution of the official SDK validator rejects the documented sandbox `00AAAAA0000A1ZT` checksum. Allow this exact documented fixture only for a server-enabled sandbox test path, never saved-client autofill; retain checksum validation for ordinary GSTINs. Do not disable checksum globally.
 
 ## User-visible changes
 - Add **Verify GSTIN** alongside the existing client GSTIN field, using current styling.
@@ -30,6 +31,7 @@ There is no standard built-in backend rate limiter. Use a small, database-backed
 - `src/lib/gstin.ts`: shared normalization, validation, allowlisted result/status types and recognized state mapping.
 - `src/lib/gstin.functions.ts`: authenticated POST server function, bounded input and no-store responses, dynamically importing server helpers inside its handler.
 - `src/lib/gstin.server.ts`: fixed provider endpoint, server-only key, official SDK wrapper, request timeouts, narrow response validation and sanitized errors. Set SDK retries to zero and handle bounded backoff explicitly so each attempt reserves shared capacity; retry only 429/502, maximum three total attempts.
+- A sandbox-only test flag is off by default; it permits only the exact documented sandbox fixture and prevents applying it to a client form. Test the ordinary checksum failure and narrow sandbox exception separately.
 - `src/components/GstinVerification.tsx`: reusable verification/result/confirmation control for Clients, ready for any genuinely existing future supplier form.
 - `src/test/gstin.test.ts`, `src/test/gstin-server.test.ts`, `src/test/gstin-verification.test.tsx`: validation, provider/auth/quotas and autofill behavior tests.
 - `supabase/migration_2026_10_22_gstin_quota.sql` and `_tests.sql`: isolated quota proposal and rollback-only security/limit assertions, never executed here without separate approval.
