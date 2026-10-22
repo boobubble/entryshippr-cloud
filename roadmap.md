@@ -1,5 +1,6 @@
 # Roadmap
-- [ ] GSTIN verification — inspect and present isolated client-form integration plan with reliable per-account limits; implementation awaits plan review, provider configuration and separately approved DEV quota setup
+- [ ] GSTIN application-code implementation approved: official SDK, existing Clients/server functions, feature and regression tests; no credential, SQL, Storage or deployment changes
+- [ ] GSTIN live verification — blocked by manually configured provider key, separately approved reliable DEV quota setup and authenticated external-DEV access
 - [x] Restore original subscription prices ₹1,200/₹1,800 and ₹3,000 first-purchase joining fee; Git history matches, 205 tests passed and homepage verified; no deployment or payment-record changes
 - [x] Essential follow-up: strict still-image headers/resource limits, server-only pixel decoding, submission failure/retry tests and sanitized provider errors/logs; hosted decoder and real DEV integration remain unverified
 - [x] Essential payment-proof code fixes: dedicated structural checks, truthful history errors, admin paid-history refresh; 142 tests passed, preview build OK; real DEV upload/review remains blocked by external session/setup
