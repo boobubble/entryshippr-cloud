@@ -13,6 +13,7 @@ import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { StateSelect } from "@/components/StateSelect";
 import { addAlias, useClientAliases } from "@/lib/client-aliases";
+import { GstinVerification } from "@/components/GstinVerification";
 
 export const Route = createFileRoute("/_app/clients")({
   head: appHead("Clients", "Manage your GST and non-GST courier clients."),
@@ -129,7 +130,9 @@ function Clients() {
               {(["name", "phone", "email", "gstin", "state", "address"] as const).map((f) => (
                 <div key={f} className={f === "address" ? "sm:col-span-2" : ""}>
                   <Label className="capitalize">{f === "gstin" ? "GSTIN" : f}</Label>
-                  {f === "state"
+                    {f === "gstin"
+                      ? <GstinVerification key={edit.id || "new-client"} value={edit.gstin} onChange={(v) => setEdit({ ...edit, gstin: v })} onApply={(patch) => setEdit((current) => current ? { ...current, ...patch } : null)} />
+                      : f === "state"
                     ? <StateSelect value={edit.state} onChange={(v) => setEdit({ ...edit, state: v })} />
                     : <Input required={f === "name"} className={f === "name" ? "uppercase" : undefined} value={edit[f]} onChange={(e) => setEdit({ ...edit, [f]: e.target.value })} />}
                   {f === "name" && (() => {
